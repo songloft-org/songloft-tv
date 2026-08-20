@@ -379,6 +379,7 @@ fun PlayerScreen(
                 onToggleSound = if (uiState.eqEnabled || uiState.sfxEnabled) ({ viewModel.toggleSoundPanel() }) else null,
                 onToggleFavorite = { viewModel.toggleFavorite() },
                 onCycleAudioTrack = { viewModel.cycleAudioTrack() },
+                onToggleAccompaniment = { viewModel.toggleAccompaniment() },
                 onRefreshLyrics = { viewModel.refreshLyrics() },
                 playPauseFocusRequester = controlBarFocus,
                 soundButtonFocusRequester = soundButtonFocus,

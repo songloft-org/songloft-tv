@@ -152,6 +152,7 @@ fun ControlBar(
     onToggleSound: (() -> Unit)? = null,
     onToggleFavorite: () -> Unit = {},
     onCycleAudioTrack: () -> Unit = {},
+    onToggleAccompaniment: () -> Unit = {},
     onRefreshLyrics: () -> Unit = {},
     isLyricRefreshing: Boolean = false,
     playPauseFocusRequester: FocusRequester? = null,
@@ -241,16 +242,16 @@ fun ControlBar(
                     loading = isLyricRefreshing
                 )
             }
-            // 电台是持续流媒体，无多音轨概念，隐藏原唱/伴唱键
-            if (uiState.availableTracks.size > 1 && uiState.currentSong?.type != "radio") {
-                // 第 1 条音轨视为原唱（Mic），其余视为伴唱（MicOff），与播放/暂停图标同样随状态切换
-                val trackIndex = uiState.availableTracks
-                    .indexOfFirst { it.id == uiState.currentTrack?.id }
-                val isOriginal = trackIndex <= 0
+            // 原唱/伴唱键：多音轨走切轨道（Scheme B），单音轨走 DSP 人声消除（Scheme A），电台无此功能
+            if (uiState.currentSong?.type != "radio") {
+                val isMultiTrack = uiState.availableTracks.size > 1
+                val isAccompaniment = if (isMultiTrack) {
+                    uiState.availableTracks.indexOfFirst { it.id == uiState.currentTrack?.id } > 0
+                } else uiState.vocalRemovalEnabled
                 TransportButton(
-                    if (isOriginal) Icons.Rounded.Mic else Icons.Rounded.MicOff,
-                    if (isOriginal) "原唱" else "伴唱",
-                    onCycleAudioTrack
+                    if (isAccompaniment) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                    if (isAccompaniment) "伴唱" else "原唱",
+                    onClick = if (isMultiTrack) onCycleAudioTrack else onToggleAccompaniment
                 )
             }
             // 电台是持续流媒体，音效无意义，隐藏音效键（均衡器/音效任一开启才显示入口）

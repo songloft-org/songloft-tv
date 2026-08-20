@@ -99,7 +99,8 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 
 ### 3.1 MusicService（`MusicService.kt`）
 
-`@AndroidEntryPoint`（Hilt 注入 PreferencesDataStore）。ExoPlayer 真正的创建位置。自定义 `DataSource.Factory`：每次创建 `DefaultHttpDataSource` 时**动态**读取 `AuthInterceptor.accessToken` 附加 `Authorization` 头（JWT 会运行期刷新，不能固化）。
+`@AndroidEntryPoint`（Hilt 注入 PreferencesDataStore）。ExoPlayer 真正的创建位置。 自定义 `DataSource.Factory`：每次创建 `DefaultHttpDataSource` 时**动态**读取 `AuthInterceptor.accessToken` 附加 `Authorization` 头（JWT 会运行期刷新，不能固化）。
+  ExoPlayer 通过自定义 `DefaultRenderersFactory` 注入 `VocalRemovalProcessor` 到 `DefaultAudioSink`（音频处理链 PCM 流出 AudioTrack 前，与 audiofx HAL 层均衡器/音效正交叠加）。AudioSession 在 ExoPlayer 构建时即分配。
 
 - AudioAttributes（music/media + 音频焦点）、`setHandleAudioBecomingNoisy(true)`。
 - MediaSession 的 sessionActivity 指向 `PlayerActivity`（点通知回播放器）。
@@ -114,8 +115,9 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 - **自定义命令**（`onConnect` 授权，`onCustomCommand` 返回 `ListenableFuture<SessionResult>`）：
   - `eq/apply`、`eq/info`、`eq/check`：均衡器开关/预设/频段增益应用、能力与状态回传、静态能力校验；
   - `sfx/apply`、`sfx/info`、`sfx/check`：音效应用（enabled=false 时强制 mode=off）、能力矩阵（逐效果器查询 `AudioEffect.queryEffects()`）+ A2DP 状态 + 当前生效模式回传、静态能力校验；
-  - `cache/clear`：遍历 `cache.getKeys()` 逐个 `removeResource` 清空；`cache/apply`：未播放则 stopSelf 立即生效，播放中保持下次生效。
-- `onDestroy` 释放顺序：mediaSession → player → `cache?.release()` → 均衡器/音效 → 注销设备回调。
+   - `cache/clear`：遍历 `cache.getKeys()` 逐个 `removeResource` 清空；`cache/apply`：未播放则 stopSelf 立即生效，播放中保持下次生效。
+   - `vocal/apply`、`vocal/check`：DSP 人声消除（Mid/Side 分频段降人声）开关应用、能力与状态回传（`isActive()` 反映当前音轨格式是否为 16-bit PCM stereo）；
+   - `onDestroy` 释放顺序：mediaSession → player → `cache?.release()` → 均衡器/音效 → `vocalRemovalProcessor.reset()` → 注销设备回调。
 
 ### 3.2 PlayerController（`domain/PlayerController.kt`）
 
@@ -132,7 +134,8 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 - **均衡器**：`PlaybackState` 暴露 eqSupported/eqEnabled/eqPreset/eqBands/eqBandFrequencies/eqBandLevelMin/Max/eqPresetNames。`init` 中 `combine(eqEnabled, eqPreset, eqBands)` 收集 DataStore flow——UI 修改只写 DataStore，闭环自动 `sendEqApply`（幂等）；连接时**先应用缓存配置再 `queryEqInfo`**（保证 info 反映应用后状态），播放就绪（STATE_READY）且仍不支持时 `retryEqSetup` 重试（音频会话晚于连接就绪的冷启动竞态）。`setEqualizerBand` 手动调频段时自动将 preset 置 -1（自定义曲线）。
 - **音效**：`PlaybackState` 暴露 sfxEnabled/sfxMode/sfxStrength/sfxSupportedMatrix/sfxA2dpActive/sfxActiveMode；与均衡器同构的 DataStore 闭环（`sfx_enabled`/`sfx_mode`/`sfx_strength`），连接时先应用缓存再 `querySfxInfo`；`sfx/info` 回传能力矩阵与 A2DP 状态，UI 据此显示"当前设备不支持音效"提示或蓝牙输出提醒。
 - **原伴唱音效联动**：切到伴唱（第 1 条音轨视为原唱，其余视为伴唱）且设备支持响度音效时，把当前音效（开关/模式/强度）备份到内存（`sfxBackup`，不写 DataStore），临时切到响度模式；切回原唱、切到新歌或重新播放时还原备份。覆盖只改运行缓存（`sfxEnabledCache` 等），服务重连/播放就绪重放时按缓存生效，进程重启后仍是用户原设置。
-- **缓存命令**：`clearPlayCache(onResult)` 发 `cache/clear`，回调透传成功与否；`applyCacheSetting()` 发 `cache/apply`，若当前未播放则 `release()` 并**同时清空 controllerFuture**（旧 future 指向已释放的 controller，不清会导致下次连接复用已释放实例），让服务停止后下次播放按新大小生效。
+  - **缓存命令**：`clearPlayCache(onResult)` 发 `cache/clear`，回调透传成功与否；`applyCacheSetting()` 发 `cache/apply`，若当前未播放则 `release()` 并**同时清空 controllerFuture**（旧 future 指向已释放的 controller，不清会导致下次连接复用已释放实例），让服务停止后下次播放按新大小生效。
+  - **人声消除（DSP fallback）**：`PlaybackState` 暴露 `vocalRemovalEnabled`/`vocalRemovalSupported`。`toggleAccompaniment()` → `toggleAccompanimentMode()`：多音轨（服务端 tracks>1 或内嵌音轨>1）时切轨道（Scheme B），单音轨时切换 DSP 开关（Scheme A），二者互斥。`switchTrack` 切到真双音轨时强制 `setVocalRemovalEnabled(false)`；`onMediaItemTransition` 新歌自动重置 DSP 为关闭。`setVocalRemovalEnabled` 改变 state 并发 `vocal/apply` 命令；连接时发送缓存状态 + `vocal/check` 查询能力。STATE_READY 时重试检查（`configure()` 后 `isActive()` 才反映真实格式支持）。
 
 ### 3.3 LyricParser（`domain/LyricParser.kt`）
 
@@ -149,7 +152,7 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 - **交互**：控制栏 10s 无操作自动隐藏；控制隐藏时——左右键长按连续 ±10s seek、短按切歌、上下/OK 唤出控制栏；媒体键直达（MediaNext/Previous/PlayPause）。控制栏左上角带返回按钮（`PlayerActivity` 内 BackHandler/按钮返回主界面）。
 - **两种模式**：视频（全屏 `VideoPlayer` = PlayerView 绑定 MediaController，多音轨时右上角 TrackChips）；音频（封面 blur(60dp) 毛玻璃背景 + 左封面/右 `LyricsPanel`）。
 - **LyricsPanel**：自动滚动居中；逐字行渲染 KaraokeLine（按 word start/end 进度逐字点亮）；附带翻译行。
-- **ControlBar**：SeekBar（支持触屏点击定位 + 拖拽 seek）+ 上一曲/播放暂停/下一曲/播放模式/收藏/重新获取歌词/均衡器/队列按钮（重新获取歌词走 `refresh=1` 重跑服务端歌词插件搜索，请求中按钮显示加载圈）。
+  - **ControlBar**：SeekBar（支持触屏点击定位 + 拖拽 seek）+ 上一曲/播放暂停/下一曲/播放模式/收藏/重新获取歌词/均衡器/队列按钮（重新获取歌词走 `refresh=1` 重跑服务端歌词插件搜索，请求中按钮显示加载圈）。原唱/伴唱按钮对所有非电台歌曲显示：多音轨时 `cycleAudioTrack` 切轨道（Scheme B），单音轨时 `toggleAccompaniment` 开关 DSP 人声消除（Scheme A）。
 - **QueueDrawer**：左侧 400dp 抽屉，当前曲高亮，自动滚到当前位置，点击条目跳播（`PlayerController.playAt(index)`）。
 - **EqPanel**：右侧 440dp 抽屉（与队列抽屉对称），开关 chip（开启/关闭）+ 系统预设 chip（FlowRow 前 6 个）+ 频段增益条（聚焦时左右键 ±1dB 步进，范围 levelMin/100..levelMax/100，手绘轨道+拇指复用 ControlBar SeekBar 样式）；`eqSupported=false` 时仅显示"当前设备不支持均衡器"；Back/点击外部关闭，Back 优先级：队列抽屉 > EQ 面板 > 控制栏。
 

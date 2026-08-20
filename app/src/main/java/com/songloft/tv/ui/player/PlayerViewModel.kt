@@ -60,6 +60,7 @@ data class PlayerUiState(
     val sfxModeNames: List<String> = emptyList(),
     val sfxModeSupported: List<Boolean> = emptyList(),
     val sfxOnA2dp: Boolean = false,
+    val vocalRemovalEnabled: Boolean = false,
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30
 )
@@ -128,7 +129,8 @@ class PlayerViewModel @Inject constructor(
                         sfxModeKeys = s.sfxModeKeys,
                         sfxModeNames = s.sfxModeNames,
                         sfxModeSupported = s.sfxModeSupported,
-                        sfxOnA2dp = s.sfxOnA2dp
+                        sfxOnA2dp = s.sfxOnA2dp,
+                        vocalRemovalEnabled = s.vocalRemovalEnabled
                     )
                 }
                 val songId = s.currentSong?.id
@@ -199,6 +201,8 @@ class PlayerViewModel @Inject constructor(
         val currentIndex = tracks.indexOfFirst { it.id == s.currentTrack?.id }
         switchTrack(tracks[(currentIndex + 1) % tracks.size])
     }
+
+    fun toggleAccompaniment() = playerController.toggleAccompanimentMode()
 
     fun withPlayer(action: (androidx.media3.common.Player) -> Unit) = playerController.withPlayer(action)
 

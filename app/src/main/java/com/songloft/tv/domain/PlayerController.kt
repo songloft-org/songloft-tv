@@ -125,7 +125,9 @@ data class PlaybackState(
     // 蓝牙 A2DP 输出时多数 audiofx 效果不生效，UI 需提示
     val sfxOnA2dp: Boolean = false,
     // 服务端实际生效的模式（设备切换后可能暂时停用）
-    val sfxActiveMode: String = "off"
+    val sfxActiveMode: String = "off",
+    val vocalRemovalEnabled: Boolean = false,
+    val vocalRemovalSupported: Boolean = false
 )
 
 @Singleton
@@ -145,6 +147,7 @@ class PlayerController @Inject constructor(
     private var sfxEnabledCache: Boolean = false
     private var sfxModeCache: String = "virtualizer"
     private var sfxStrengthCache: Int = 50
+    private var vocalRemovalEnabledCache: Boolean = false
 
     // 伴唱模式下音效的运行时备份（不落盘）：切伴唱时备份当前音效并临时切响度，回原唱时还原
     private var sfxBackup: SfxBackup? = null
@@ -244,6 +247,9 @@ class PlayerController @Inject constructor(
             // 新歌默认回到第一轨（原唱），伴唱音效覆盖随之还原（同曲音轨切换保留覆盖）
             if (song != null && song.id != previousSong?.id) {
                 setTrackSfxOverride(accompaniment = false)
+                if (_state.value.vocalRemovalEnabled) {
+                    setVocalRemovalEnabled(false)
+                }
             }
         }
 
@@ -272,6 +278,7 @@ class PlayerController @Inject constructor(
             if (playbackState == Player.STATE_READY) {
                 if (_state.value.eqBandFrequencies.isEmpty()) retryEqSetup()
                 if (_state.value.sfxModeSupported.isEmpty()) retrySfxSetup()
+                controller?.let { checkVocalRemovalSupport(it) }
             }
         }
 
@@ -324,6 +331,8 @@ class PlayerController @Inject constructor(
                     sendSfxApply(sfxEnabledCache, sfxModeCache, sfxStrengthCache)
                     checkSfxSupport(c)
                     querySfxInfo(c)
+                    sendVocalRemovalApply(vocalRemovalEnabledCache)
+                    checkVocalRemovalSupport(c)
                 }
                 action(c)
             }
@@ -408,6 +417,7 @@ class PlayerController @Inject constructor(
         }
         _state.update { it.copy(currentTrack = track) }
         syncSfxWithTrack(track)
+        setVocalRemovalEnabled(false)
     }
 
     private fun switchEmbeddedTrack(track: Track) {
@@ -422,6 +432,7 @@ class PlayerController @Inject constructor(
             _state.update { it.copy(currentTrack = track) }
         }
         syncSfxWithTrack(track)
+        setVocalRemovalEnabled(false)
     }
 
     // 原伴唱音效联动：第 1 条音轨视为原唱，其余视为伴唱（与 ControlBar 的按钮状态一致）
@@ -783,6 +794,54 @@ class PlayerController @Inject constructor(
                         sfxModeSupported = modeSupported,
                         sfxOnA2dp = extras.getBoolean(MusicService.EXTRA_A2DP, false),
                         sfxActiveMode = active
+                    )
+                }
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    fun setVocalRemovalEnabled(enabled: Boolean) {
+        _state.update { it.copy(vocalRemovalEnabled = enabled) }
+        vocalRemovalEnabledCache = enabled
+        withController { c ->
+            val args = Bundle().apply { putBoolean(MusicService.EXTRA_ENABLED, enabled) }
+            c.sendCustomCommand(SessionCommand(MusicService.VOCAL_REMOVE_APPLY, Bundle.EMPTY), args)
+        }
+    }
+
+    fun toggleAccompanimentMode() {
+        val s = _state.value
+        val multiTrack = (s.currentSong?.hasMultiTrack == true) || s.embeddedTracks.size > 1
+        if (multiTrack) {
+            val next = if (s.currentTrack == s.currentSong?.tracks?.first()) s.currentSong?.tracks?.getOrNull(1)
+            else s.currentSong?.tracks?.first()
+            next?.let { switchTrack(it) }
+            setVocalRemovalEnabled(false)
+        } else {
+            setVocalRemovalEnabled(!s.vocalRemovalEnabled)
+        }
+    }
+
+    private fun sendVocalRemovalApply(enabled: Boolean) {
+        val c = controller ?: return
+        val args = Bundle().apply { putBoolean(MusicService.EXTRA_ENABLED, enabled) }
+        c.sendCustomCommand(SessionCommand(MusicService.VOCAL_REMOVE_APPLY, Bundle.EMPTY), args)
+    }
+
+    private fun checkVocalRemovalSupport(c: MediaController) {
+        val future = c.sendCustomCommand(
+            SessionCommand(MusicService.VOCAL_REMOVE_CHECK, Bundle.EMPTY), Bundle.EMPTY
+        )
+        future.addListener({
+            runCatching {
+                val r = future.get()
+                val supported = r.resultCode == SessionResult.RESULT_SUCCESS &&
+                    r.extras?.getBoolean(MusicService.EXTRA_SUPPORTED, false) == true
+                val enabled = r.extras?.getBoolean(MusicService.EXTRA_ENABLED, false) == true
+                _state.update {
+                    it.copy(
+                        vocalRemovalSupported = supported,
+                        vocalRemovalEnabled = enabled
                     )
                 }
             }

@@ -38,8 +38,11 @@ import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
@@ -55,6 +58,7 @@ import com.songloft.tv.data.cache.Id3SkippingDataSource
 import com.songloft.tv.data.cache.PlaybackCache
 import com.songloft.tv.data.cache.RoutingDataSource
 import com.songloft.tv.data.storage.PreferencesDataStore
+import com.songloft.tv.player.audio.VocalRemovalProcessor
 import com.songloft.tv.ui.player.PlayerActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
@@ -73,6 +77,7 @@ class MusicService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var equalizer: Equalizer? = null
     private var cache: SimpleCache? = null
+    private val vocalRemovalProcessor = VocalRemovalProcessor()
     // 音效模式效果器（与均衡器独立叠加，单模式互斥）
     private val sfxEffects = mutableMapOf<SfxType, AudioEffect>()
 
@@ -177,7 +182,20 @@ class MusicService : MediaSessionService() {
             }
         } ?: upstreamFactory
 
-        player = ExoPlayer.Builder(this)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            @OptIn(UnstableApi::class)
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setAudioProcessors(arrayOf(vocalRemovalProcessor))
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+        }
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -422,6 +440,8 @@ class MusicService : MediaSessionService() {
                 .add(SessionCommand(SFX_CHECK, Bundle.EMPTY))
                 .add(SessionCommand(CACHE_CLEAR, Bundle.EMPTY))
                 .add(SessionCommand(CACHE_APPLY, Bundle.EMPTY))
+                .add(SessionCommand(VOCAL_REMOVE_APPLY, Bundle.EMPTY))
+                .add(SessionCommand(VOCAL_REMOVE_CHECK, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(available)
@@ -505,6 +525,19 @@ class MusicService : MediaSessionService() {
                             Bundle().apply { putBoolean(EXTRA_SUPPORTED, supported) }
                         )
                     )
+                }
+                VOCAL_REMOVE_APPLY -> {
+                    val enabled = args.getBoolean(EXTRA_ENABLED, false)
+                    vocalRemovalProcessor.setEnabled(enabled)
+                    Log.d(TAG, "vocal/apply: enabled=$enabled")
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+                VOCAL_REMOVE_CHECK -> {
+                    val extras = Bundle().apply {
+                        putBoolean(EXTRA_SUPPORTED, vocalRemovalProcessor.isActive())
+                        putBoolean(EXTRA_ENABLED, vocalRemovalProcessor.isEnabled())
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, extras))
                 }
             }
             val eq = ensureEqualizer()
@@ -602,6 +635,7 @@ class MusicService : MediaSessionService() {
         equalizer?.release()
         equalizer = null
         releaseSfxAll()
+        vocalRemovalProcessor.reset()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             runCatching {
                 (getSystemService(AUDIO_SERVICE) as AudioManager)
@@ -624,6 +658,9 @@ class MusicService : MediaSessionService() {
 
         const val CACHE_CLEAR = "cache/clear"
         const val CACHE_APPLY = "cache/apply"
+
+        const val VOCAL_REMOVE_APPLY = "vocal/apply"
+        const val VOCAL_REMOVE_CHECK = "vocal/check"
 
         const val EXTRA_ENABLED = "enabled"
         const val EXTRA_BANDS = "bands"
