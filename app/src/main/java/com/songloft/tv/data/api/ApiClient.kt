@@ -1,5 +1,6 @@
 package com.songloft.tv.data.api
 
+import com.songloft.tv.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -19,13 +20,15 @@ object ApiClient {
         if (url == baseUrl && retrofit != null) return
         baseUrl = url.trimEnd('/')
 
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+        val logging = HttpLoggingInterceptor()
+        // 仅 debug 构建打印请求体 (含 Authorization)，防泄露生产环境的 access token
+        if (BuildConfig.DEBUG) {
+            logging.level = HttpLoggingInterceptor.Level.BODY
         }
 
         val client = TlsCompat.apply(OkHttpClient.Builder())
             .addInterceptor(authInterceptor)
-            .addInterceptor(logging)
+            .apply { if (BuildConfig.DEBUG) addInterceptor(logging) }
             .authenticator(
                 TokenAuthenticator(
                     authInterceptor = authInterceptor,

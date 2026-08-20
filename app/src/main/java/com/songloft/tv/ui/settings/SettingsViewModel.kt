@@ -324,6 +324,12 @@ class SettingsViewModel @Inject constructor(
         s = s.replace(SENSITIVE_PARAM_REGEX, "$1***")
         // 裸 JWT
         s = s.replace(JWT_REGEX, "***.***.***")
+        // 隐藏媒体流 URL 的服务器 host[:port]，保留路径 + 查询用于排除 403/404/格式问题。
+        // 例：https://host:port/api/v1/songs/123/play?track=vocal&format=mp3
+        //   → ：https://***/api/v1/songs/123/play?track=vocal&format=mp3
+        s = s.replace(MEDIA_HOST_REGEX) { m -> "${m.groupValues[1]}***${m.groupValues[3]}" }
+        // OSS/_presigned 参数 (X-Amz-*)：隐藏取值，保留参数名
+        s = s.replace(PRESIGNED_PARAM_REGEX) { m -> "${m.groupValues[1]}=<redacted>" }
         return s
     }
 
@@ -339,5 +345,9 @@ class SettingsViewModel @Inject constructor(
             Regex("(?i)\\b((?:access_token|refresh_token|token|password|secret)=)[^&\\s\"']+")
         val JWT_REGEX =
             Regex("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b")
+        // scheme://host[:port]/ → scheme://***  (隐藏自建服务器地址，保留路径用于排障)
+        val MEDIA_HOST_REGEX = Regex("(https?://)[^/]+(:[0-9]+)?(/|$)")
+        // OSS/_presigned 参数，例如 ?X-Amz-Signature=abc 或 &X-Amz-Credential=xyz
+        val PRESIGNED_PARAM_REGEX = Regex("(?i)([?&][Xx]-Amz-[A-Za-z0-9-]+)=[^&\\s]+")
     }
 }
