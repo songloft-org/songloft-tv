@@ -35,6 +35,7 @@ class PreferencesDataStore @Inject constructor(
         private val SFX_ENABLED = booleanPreferencesKey("sfx_enabled")
         private val SFX_MODE = stringPreferencesKey("sfx_mode")
         private val SFX_STRENGTH = intPreferencesKey("sfx_strength")
+        private val PRE_TRANSCODE_ENABLED = booleanPreferencesKey("pre_transcode_enabled")
         val LYRIC_HIGHLIGHT_COLOR = intPreferencesKey("lyric_highlight_color")
         val LYRIC_FONT_SIZE = intPreferencesKey("lyric_font_size")
         private val PLAY_MODE = stringPreferencesKey("play_mode")
@@ -72,6 +73,8 @@ class PreferencesDataStore @Inject constructor(
     val sfxEnabled: Flow<Boolean> = context.dataStore.data.map { it[SFX_ENABLED] ?: false }
     val sfxMode: Flow<String> = context.dataStore.data.map { it[SFX_MODE] ?: "virtualizer" }
     val sfxStrength: Flow<Int> = context.dataStore.data.map { it[SFX_STRENGTH] ?: 50 }
+    // 预转码开关（默认关闭），需先启用 MP3 转码才有效
+    val preTranscodeEnabled: Flow<Boolean> = context.dataStore.data.map { it[PRE_TRANSCODE_ENABLED] ?: false }
     // 播放模式：PlayMode.name（"ORDER"/"LOOP"/"SINGLE"/"RANDOM"），默认顺序播放
     val playMode: Flow<String> = context.dataStore.data.map { it[PLAY_MODE] ?: "ORDER" }
     // 歌词高亮颜色：1=白色，2=跟随主题色（默认）
@@ -148,6 +151,10 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun setSfxStrength(strength: Int) {
         context.dataStore.edit { it[SFX_STRENGTH] = strength }
+    }
+
+    suspend fun setPreTranscodeEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[PRE_TRANSCODE_ENABLED] = enabled }
     }
 
     suspend fun setPlayMode(mode: String) {

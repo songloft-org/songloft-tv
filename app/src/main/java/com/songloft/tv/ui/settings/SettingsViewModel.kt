@@ -49,7 +49,8 @@ data class SettingsUiState(
     val lyricFontSize: Int = 30,
     val playCacheMb: Int = 0,
     val playCacheUsageBytes: Long = 0,
-    val keyMapping: KeyMapping = KeyMapping()
+    val keyMapping: KeyMapping = KeyMapping(),
+    val preTranscodeEnabled: Boolean = false
 )
 
 @HiltViewModel
@@ -123,6 +124,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStore.preTranscodeEnabled.collect { enabled ->
+                _uiState.value = _uiState.value.copy(preTranscodeEnabled = enabled)
+            }
+        }
+        viewModelScope.launch {
             playerController.state.collect { s ->
                 _uiState.value = _uiState.value.copy(
                     sleepTimerMinutes = s.sleepTimerMinutes,
@@ -134,6 +140,10 @@ class SettingsViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun setPreTranscodeEnabled(enabled: Boolean) {
+        viewModelScope.launch { dataStore.setPreTranscodeEnabled(enabled) }
     }
 
     fun setSleepTimer(minutes: Int) {

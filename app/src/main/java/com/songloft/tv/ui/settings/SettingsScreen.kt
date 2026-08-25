@@ -187,6 +187,42 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        // 预转码设置（仅当启用 MP3 转码时才允许开启）
+        val canEnablePreTranscode = uiState.audioQuality == "mp3"
+        if (canEnablePreTranscode) {
+            SettingsSection("播放优化 - 预转码") {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    var preTranscodeEnabled by remember(uiState.preTranscodeEnabled) { 
+                        mutableStateOf(uiState.preTranscodeEnabled) 
+                    }
+                    
+                    OptionChip(
+                        label = if (preTranscodeEnabled) "已启用" else "未启用",
+                        isSelected = preTranscodeEnabled,
+                        onClick = {
+                            viewModel.setPreTranscodeEnabled(!preTranscodeEnabled)
+                            preTranscodeEnabled = !preTranscodeEnabled
+                        }
+                    )
+                    
+                    Text(
+                        text = if (preTranscodeEnabled) {
+                            "自动预转码下一首歌曲"
+                        } else {
+                            "第一首歌曲稳定播放 60s 后预转码下一首"
+                        },
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
         SettingsSection("播放缓存（已播歌曲自动缓存）") {
             CacheSizeRow(
                 cacheMb = uiState.playCacheMb,

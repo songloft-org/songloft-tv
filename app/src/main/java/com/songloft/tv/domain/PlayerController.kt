@@ -23,6 +23,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.songloft.tv.MusicService
+import com.songloft.tv.data.api.ApiClient
 import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.data.model.Track
@@ -41,6 +42,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlin.coroutines.resume
 import kotlin.math.ln
 import kotlin.math.round
@@ -127,7 +131,9 @@ data class PlaybackState(
     // 服务端实际生效的模式（设备切换后可能暂时停用）
     val sfxActiveMode: String = "off",
     val vocalRemovalEnabled: Boolean = false,
-    val vocalRemovalSupported: Boolean = false
+    val vocalRemovalSupported: Boolean = false,
+    // 预转码状态
+    val isPreTranscoding: Boolean = false
 )
 
 @Singleton
@@ -151,6 +157,12 @@ class PlayerController @Inject constructor(
 
     // 伴唱模式下音效的运行时备份（不落盘）：切伴唱时备份当前音效并临时切响度，回原唱时还原
     private var sfxBackup: SfxBackup? = null
+    
+    // ===== 预转码相关字段 =====
+    private var preTranscodeJob: Job? = null
+    private val PRE_TRANSCODE_DELAY_MS = 60_000L      // 第一次延迟：60 秒
+    private val PRE_TRANSCODE_DELAY_AFTER_MODE_CHANGE = 6_000L // 模式切换后延迟：6 秒
+    private var isFirstPreTranscode = true // 标记是否为首次预转码
 
     // 输出设备切换（HDMI/蓝牙/内置喇叭）后音效能力可能变化，主动刷新让 UI 实时感知
     private val audioDeviceCallback = object : AudioDeviceCallback() {
@@ -279,6 +291,7 @@ class PlayerController @Inject constructor(
                 if (_state.value.eqBandFrequencies.isEmpty()) retryEqSetup()
                 if (_state.value.sfxModeSupported.isEmpty()) retrySfxSetup()
                 controller?.let { checkVocalRemovalSupport(it) }
+                startPreTranscode()
             }
         }
 
@@ -385,9 +398,14 @@ class PlayerController @Inject constructor(
     fun seekTo(position: Long) = withController { it.seekTo(position) }
 
     fun setPlayMode(mode: PlayMode) {
+        val oldMode = _state.value.playMode
         _state.update { it.copy(playMode = mode) }
         scope.launch { dataStore.setPlayMode(mode.name) }
         withController { applyPlayMode(it, mode) }
+        // 播放模式变更时重置预转码
+        if (oldMode != mode) {
+            onPlayModeChanged(oldMode, mode)
+        }
     }
 
     fun cyclePlayMode() {
@@ -903,9 +921,190 @@ class PlayerController @Inject constructor(
         _state.update { it.copy(sleepAfterSongsRemaining = next) }
         if (next == 0) {
             controller?.pause()
-            _state.update { it.copy(sleepAfterSongs = 0) }
+            _state.update { it.copy(sleepAfterSongs = 0, sleepAfterSongsRemaining = 0) }
         }
     }
+
+    // ===== 预转码功能相关 =====
+    
+    /** 检查是否应该启用预转码 */
+    private fun shouldEnablePreTranscode(): Boolean {
+        val currentMode = _state.value.playMode
+        // 单曲循环不适合预转码
+        if (currentMode == PlayMode.SINGLE) {
+            Log.d(TAG, "预转码跳过：${currentMode.name}")
+            return false
+        }
+        // 当前是 MP3 转码模式即可（用户开关由 UI 控制）
+        val isMp3Transcode = audioQuality == "mp3"
+        return isMp3Transcode
+    }
+
+    /** 启动预转码流程 */
+    fun startPreTranscode() {
+        if (!shouldEnablePreTranscode()) {
+            cancelPreTranscode()
+            return
+        }
+        
+        cancelPreTranscode()
+        
+        scope.launch {
+            val currentState = _state.value
+            val currentSong = currentState.currentSong ?: return@launch
+            
+            // 计算延迟时间：
+            // - 第一次：min(60 秒，歌曲总时长/2)
+            // - 模式切换后：min(6 秒，剩余时长/2)
+            val songDurationMs = (currentSong.duration * 1000).toLong()
+            val currentPosition = controller?.currentPosition ?: 0L
+            val remainingTime = maxOf(0L, songDurationMs - currentPosition)
+            
+            val baseDelay = if (isFirstPreTranscode) PRE_TRANSCODE_DELAY_MS 
+                            else PRE_TRANSCODE_DELAY_AFTER_MODE_CHANGE
+            
+            val delayTime = minOf(baseDelay, remainingTime / 2)
+            
+            Log.d(TAG, "[PRE_TRANSCODE] ${if (isFirstPreTranscode) "首次" else "模式切换后"}延迟 $delayTime ms 后预转码 (剩余时长=${remainingTime}ms)")
+            delay(delayTime)
+            
+            // 检查是否仍处于稳定播放期（未发生新歌切换）
+            if (_state.value.currentSong?.id == currentSong.id) {
+                isFirstPreTranscode = false // 首次预转码完成后，后续都按 6 秒延迟
+                // 延迟结束后，根据当前实际播放模式计算下一首
+                tryTranscodeNext(currentSong, _state.value.currentIndex)
+            }
+        }
+    }
+
+    /** 尝试预转码指定歌曲的下一首 */
+    private suspend fun tryTranscodeNext(currentSong: Song, currentIndex: Int) {
+        val currentState = _state.value
+        val queue = currentState.queue
+        
+        if (queue.isEmpty() || currentIndex < 0 || currentIndex >= queue.size - 1) {
+            Log.d(TAG, "[PRE_TRANSCODE] 无下一首歌曲可预转码")
+            return
+        }
+        
+        // 确定下一首索引
+        val nextIndex = when (currentState.playMode) {
+            PlayMode.ORDER -> {
+                // 顺序播放：当前 +1
+                currentIndex + 1
+            }
+            PlayMode.LOOP -> {
+                // 列表循环：当前 +1（取模）
+                (currentIndex + 1) % queue.size
+            }
+            PlayMode.SINGLE -> {
+                // 单曲循环不需要预转码（shouldEnablePreTranscode 已过滤）
+                currentIndex
+            }
+            PlayMode.RANDOM -> {
+                // 随机模式：通过 currentQueueItemIndex 获取下一首
+                var nextIdx = -1
+                withController { controller ->
+                    val mediaItemCount = controller.mediaItemCount
+                    if (mediaItemCount <= 1) {
+                        Log.w(TAG, "[PRE_TRANSCODE] 随机模式下媒体项少于 2 个，跳过预转码")
+                    } else {
+                        // ExoPlayer 在随机模式下会自动打乱队列，currentMediaItemIndex 返回的是当前正在播放的索引
+                        // 下一首就是 currentMediaItemIndex + 1（如果到末尾则回绕）
+                        nextIdx = (controller.currentMediaItemIndex + 1) % mediaItemCount
+                    }
+                }
+                nextIdx
+            }
+        }
+        
+        if (nextIndex < 0 || nextIndex >= queue.size) {
+            Log.d(TAG, "[PRE_TRANSCODE] 下一首索引无效：$nextIndex")
+            return
+        }
+        
+        val nextSong = queue[nextIndex]
+        Log.d(TAG, "[PRE_TRANSCODE] 准备预转码下一首：${nextSong.title} (ID: ${nextSong.id}, 模式：${currentState.playMode.name})")
+        
+        _state.update { it.copy(isPreTranscoding = true) }
+        
+        try {
+            // 构建预转码 URL
+            val transcodeUrl = UrlHelper.songPlayUrl(
+                songId = nextSong.id,
+                transcodeFormat = "mp3",
+                track = null,
+                isVideo = false,
+                sourceFormat = nextSong.format
+            )
+            
+            // 发起 HTTP 请求触发转码（GET + 立即断开）
+            performPrefetchRequest(transcodeUrl)
+            
+            Log.d(TAG, "[PRE_TRANSCODE] 预转码成功：${nextSong.title}")
+        } catch (e: Exception) {
+            Log.e(TAG, "[PRE_TRANSCODE] 预转码失败", e)
+        } finally {
+            _state.update { it.copy(isPreTranscoding = false) }
+        }
+    }
+
+    /** 触发预转码 HTTP 请求（GET + 立即断开） */
+    private suspend fun performPrefetchRequest(url: String) {
+        // 复用 ApiClient 的 authInterceptor，确保带上 authorization token
+        val client = if (ApiClient.isInitialized()) {
+            val authInterceptor = ApiClient.authInterceptor
+            okhttp3.OkHttpClient.Builder()
+                .addInterceptor(authInterceptor)
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+        } else {
+            throw Exception("ApiClient not initialized")
+        }
+        
+        // 使用 HEAD 请求，避免下载内容
+        val request = Request.Builder().url(url).head().build()
+        
+        try {
+            // 在 IO 线程执行请求
+            withContext(Dispatchers.IO) {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "[PRE_TRANSCODE] 请求成功：$url")
+                    } else {
+                        throw Exception("预转码请求失败：${response.code}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "[PRE_TRANSCODE] 请求异常 (不影响后续播放): ${e.message}")
+            throw e
+        } finally {
+            client.dispatcher.executorService.shutdownNow()
+        }
+    }
+
+    /** 取消预转码任务 */
+    private fun cancelPreTranscode() {
+        preTranscodeJob?.cancel()
+        preTranscodeJob = null
+    }
+
+    /** 播放模式变更时重置预转码（仅当首次预转码已完成时才重置） */
+    fun onPlayModeChanged(oldMode: PlayMode, newMode: PlayMode) {
+        if (oldMode != newMode) {
+            // 仅在首次预转码完成后，才响应模式切换并重置计时器
+            if (!isFirstPreTranscode) {
+                Log.d(TAG, "[PRE_TRANSCODE] 播放模式从 $oldMode 切换到 $newMode，重置预转码")
+                cancelPreTranscode()
+                startPreTranscode()
+            } else {
+                Log.d(TAG, "[PRE_TRANSCODE] 首次 60 秒延迟中切换模式 ($oldMode→$newMode)，不重置计时器")
+            }
+        }
+    }
+    // ===== 预转码功能结束 =====
 
     private fun reportTransition(previousSong: Song?, song: Song?, reason: Int) {
         // 音轨切换会重建同一首歌的 MediaItem，不重复上报
