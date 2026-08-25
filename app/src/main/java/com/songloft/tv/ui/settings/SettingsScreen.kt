@@ -209,11 +209,7 @@ fun SettingsScreen(
                     )
                     
                     Text(
-                        text = if (preTranscodeEnabled) {
-                            "自动预转码下一首歌曲"
-                        } else {
-                            "第一首歌曲稳定播放 60s 后预转码下一首"
-                        },
+                        text = "提前预转码下一首歌曲",
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                     )

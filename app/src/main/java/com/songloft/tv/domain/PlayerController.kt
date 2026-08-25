@@ -146,6 +146,7 @@ class PlayerController @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var audioQuality: String? = null
+    private var preTranscodeEnabledCache: Boolean = false // 预转码总开关状态
 
     private var eqEnabledCache: Boolean = false
     private var eqBandsCache: List<Int> = emptyList()
@@ -163,6 +164,7 @@ class PlayerController @Inject constructor(
     private val PRE_TRANSCODE_DELAY_MS = 60_000L      // 第一次延迟：60 秒
     private val PRE_TRANSCODE_DELAY_AFTER_MODE_CHANGE = 6_000L // 模式切换后延迟：6 秒
     private var isFirstPreTranscode = true // 标记是否为首次预转码
+    private var lastPlayedSongId: Long? = null // 记录最后一次触发预转码的歌曲 ID
 
     // 输出设备切换（HDMI/蓝牙/内置喇叭）后音效能力可能变化，主动刷新让 UI 实时感知
     private val audioDeviceCallback = object : AudioDeviceCallback() {
@@ -178,6 +180,21 @@ class PlayerController @Inject constructor(
     init {
         scope.launch {
             dataStore.audioQuality.collect { audioQuality = it?.takeIf { q -> q.isNotBlank() } }
+        }
+        // 预转码总开关监听
+        scope.launch {
+            dataStore.preTranscodeEnabled.collect { enabled ->
+                val wasEnabled = preTranscodeEnabledCache
+                preTranscodeEnabledCache = enabled ?: false
+                _state.update { it.copy(isPreTranscoding = it.isPreTranscoding) } // 保持状态同步
+                // 如果用户关闭了预转码开关，取消所有正在进行的预转码任务
+                if (wasEnabled && !preTranscodeEnabledCache) {
+                    cancelPreTranscode()
+                    isFirstPreTranscode = true
+                    lastPlayedSongId = null
+                    Log.d(TAG, "用户关闭预转码总开关，已取消所有预转码任务")
+                }
+            }
         }
         // 均衡器配置持久化闭环：UI 只写 DataStore，这里缓存并推送给 MusicService
         scope.launch {
@@ -929,15 +946,27 @@ class PlayerController @Inject constructor(
     
     /** 检查是否应该启用预转码 */
     private fun shouldEnablePreTranscode(): Boolean {
+        // 1. 预转码总开关必须打开
+        if (!preTranscodeEnabledCache) {
+            Log.d(TAG, "预转码跳过：总开关已关闭")
+            return false
+        }
+        
+        // 2. 单曲循环不适合预转码
         val currentMode = _state.value.playMode
-        // 单曲循环不适合预转码
         if (currentMode == PlayMode.SINGLE) {
             Log.d(TAG, "预转码跳过：${currentMode.name}")
             return false
         }
-        // 当前是 MP3 转码模式即可（用户开关由 UI 控制）
+        
+        // 3. 当前必须是 MP3 转码模式
         val isMp3Transcode = audioQuality == "mp3"
-        return isMp3Transcode
+        if (!isMp3Transcode) {
+            Log.d(TAG, "预转码跳过：音频格式为 ${audioQuality ?: "原始"}")
+            return false
+        }
+        
+        return true
     }
 
     /** 启动预转码流程 */
@@ -947,30 +976,34 @@ class PlayerController @Inject constructor(
             return
         }
         
+        // 检查是否是新歌开始播放（且没有正在进行的预转码任务）
+        val currentState = _state.value
+        val isNewSong = _state.value.currentSong?.id != lastPlayedSongId
+        
         cancelPreTranscode()
         
         scope.launch {
-            val currentState = _state.value
             val currentSong = currentState.currentSong ?: return@launch
             
             // 计算延迟时间：
-            // - 第一次：min(60 秒，歌曲总时长/2)
-            // - 模式切换后：min(6 秒，剩余时长/2)
+            // - 新歌开始或从未预转过：min(60 秒，歌曲总时长/2)
+            // - 同一首歌的模式切换后：min(6 秒，剩余时长/2)
             val songDurationMs = (currentSong.duration * 1000).toLong()
             val currentPosition = controller?.currentPosition ?: 0L
             val remainingTime = maxOf(0L, songDurationMs - currentPosition)
             
-            val baseDelay = if (isFirstPreTranscode) PRE_TRANSCODE_DELAY_MS 
+            // 延迟基准：新歌用 60 秒，同一首歌用 6 秒
+            val baseDelay = if (isNewSong || isFirstPreTranscode) PRE_TRANSCODE_DELAY_MS 
                             else PRE_TRANSCODE_DELAY_AFTER_MODE_CHANGE
-            
             val delayTime = minOf(baseDelay, remainingTime / 2)
             
-            Log.d(TAG, "[PRE_TRANSCODE] ${if (isFirstPreTranscode) "首次" else "模式切换后"}延迟 $delayTime ms 后预转码 (剩余时长=${remainingTime}ms)")
+            Log.d(TAG, "[PRE_TRANSCODE] ${if (isNewSong) "新歌" else "同曲"}播放，延迟 $delayTime ms 后预转码 (剩余时长=${remainingTime}ms)")
             delay(delayTime)
             
             // 检查是否仍处于稳定播放期（未发生新歌切换）
             if (_state.value.currentSong?.id == currentSong.id) {
                 isFirstPreTranscode = false // 首次预转码完成后，后续都按 6 秒延迟
+                lastPlayedSongId = currentSong.id // 记录已播放的歌曲
                 // 延迟结束后，根据当前实际播放模式计算下一首
                 tryTranscodeNext(currentSong, _state.value.currentIndex)
             }
