@@ -62,7 +62,9 @@ data class PlayerUiState(
     val sfxOnA2dp: Boolean = false,
     val vocalRemovalEnabled: Boolean = false,
     val lyricHighlightColor: Int = 2,
-    val lyricFontSize: Int = 30
+    val lyricFontSize: Int = 30,
+    // K 歌模式开关
+    val karaokeModeEnabled: Boolean = false
 )
 
 @HiltViewModel
@@ -299,5 +301,19 @@ class PlayerViewModel @Inject constructor(
             }
             _uiState.update { it.copy(isLyricRefreshing = false) }
         }
+    }
+    
+    // ========== K 歌模式相关 ==========
+    
+    fun enterKaraokeMode() {
+        _uiState.update { it.copy(karaokeModeEnabled = true) }
+        // 开启人声消除（K 歌默认需要伴奏）
+        playerController.toggleAccompanimentMode()
+    }
+    
+    fun exitKaraokeMode() {
+        _uiState.update { it.copy(karaokeModeEnabled = false) }
+        // 退出时恢复原唱（可选：保留当前伴唱状态）
+        // playerController.toggleAccompanimentMode()
     }
 }

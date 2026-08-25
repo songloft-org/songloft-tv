@@ -151,9 +151,9 @@ fun ControlBar(
     onToggleQueue: () -> Unit,
     onToggleSound: (() -> Unit)? = null,
     onToggleFavorite: () -> Unit = {},
-    onCycleAudioTrack: () -> Unit = {},
-    onToggleAccompaniment: () -> Unit = {},
+    onCycleAudioTrack: () -> Unit = {},  // 保留以便支持多音轨歌曲
     onRefreshLyrics: () -> Unit = {},
+    onEnterKaraokeMode: () -> Unit = {},  // K 歌入口回调
     isLyricRefreshing: Boolean = false,
     playPauseFocusRequester: FocusRequester? = null,
     soundButtonFocusRequester: FocusRequester? = null,
@@ -242,16 +242,12 @@ fun ControlBar(
                     loading = isLyricRefreshing
                 )
             }
-            // 原唱/伴唱键：多音轨走切轨道（Scheme B），单音轨走 DSP 人声消除（Scheme A），电台无此功能
+            // === K 歌入口独立按钮（麦克风图标）===
             if (uiState.currentSong?.type != "radio") {
-                val isMultiTrack = uiState.availableTracks.size > 1
-                val isAccompaniment = if (isMultiTrack) {
-                    uiState.availableTracks.indexOfFirst { it.id == uiState.currentTrack?.id } > 0
-                } else uiState.vocalRemovalEnabled
                 TransportButton(
-                    if (isAccompaniment) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                    if (isAccompaniment) "伴唱" else "原唱",
-                    onClick = if (isMultiTrack) onCycleAudioTrack else onToggleAccompaniment
+                    Icons.Rounded.Mic,
+                    "K 歌模式",
+                    onClick = onEnterKaraokeMode
                 )
             }
             // 电台是持续流媒体，音效无意义，隐藏音效键（均衡器/音效任一开启才显示入口）

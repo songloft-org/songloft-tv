@@ -65,6 +65,7 @@ import coil.compose.AsyncImage
 import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.ui.components.CoverImage
+import com.songloft.tv.ui.components.KaraokePlaybackScreen
 import com.songloft.tv.ui.theme.PlayerColors
 import com.songloft.tv.ui.theme.TvTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -107,12 +108,16 @@ fun PlayerScreen(
     val queueDrawerFocus = remember { FocusRequester() }
     val soundPanelFocus = remember { FocusRequester() }
     val soundButtonFocus = remember { FocusRequester() }
+    
+    // K 歌模式焦点请求器（待实现）
+    // val playPauseFocusRequester = remember { FocusRequester() }
 
     BackHandler {
         when {
             uiState.showQueueDrawer -> viewModel.closeQueueDrawer()
             uiState.showSoundPanel -> viewModel.closeSoundPanel()
             uiState.showControls -> viewModel.hideControls()
+            uiState.karaokeModeEnabled -> viewModel.exitKaraokeMode()
             else -> onBack()
         }
     }
@@ -157,6 +162,18 @@ fun PlayerScreen(
 
     var didSeekDuringPress by remember { mutableStateOf(false) }
     val seekStepMs = 10_000L
+    
+    // K 歌模式焦点请求器
+    val playPauseFocusRequester = remember { FocusRequester() }
+    
+    // === K 歌模式入口按钮聚焦监听 ===
+    var karaokeButtonFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(karaokeButtonFocused) {
+        if (karaokeButtonFocused) {
+            delay(200) // 延迟进入，避免误触
+            // 如果需要键盘触发，可在此添加逻辑
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -246,13 +263,37 @@ fun PlayerScreen(
             }
             .focusable()
     ) {
-        if (uiState.currentSong != null) {
-            if (uiState.isVideoMode) {
+        // === 渲染两种模式 ===
+        when {
+            // K 歌模式（全屏双行歌词）
+            uiState.karaokeModeEnabled -> {
+                KaraokePlaybackScreen(
+                    currentSong = uiState.currentSong,
+                    isPlaying = uiState.isPlaying,
+                    lyrics = uiState.lyrics,
+                    coverUrl = uiState.currentSong?.coverUrl,
+                    progressMs = uiState.currentPosition,
+                    durationMs = uiState.duration,
+                    vocalRemovalEnabled = uiState.vocalRemovalEnabled,
+                    onToggleVocalRemoval = { viewModel.toggleAccompaniment() },
+                    onExitKaraoke = { viewModel.exitKaraokeMode() },
+                    onPlayPause = { viewModel.togglePlay() },
+                    onNext = { viewModel.nextTrack() },
+                    onPrevious = { viewModel.previousTrack() },
+                    playPauseFocusRequester = playPauseFocusRequester
+                )
+            }
+            
+            // 正常视频播放模式
+            uiState.isVideoMode -> {
                 VideoPlayer(
                     withPlayer = viewModel::withPlayer,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
+            }
+            
+            // 正常音乐播放模式
+            else -> {
                 UrlHelper.resolve(uiState.currentSong?.coverUrl)?.let { cover ->
                     AsyncImage(
                         model = cover,
@@ -266,153 +307,154 @@ fun PlayerScreen(
                             .background(PlayerColors.Scrim)
                     )
                 }
+                
                 Row(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .weight(0.45f)
-                        .fillMaxHeight()
-                        .padding(48.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .sizeIn(maxWidth = 300.dp, maxHeight = 300.dp)
-                                .aspectRatio(1f)
-                                .clip(RoundedCornerShape(54.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CoverImage(
-                                url = uiState.currentSong?.coverUrl,
-                                contentDescription = uiState.currentSong?.title,
-                                modifier = Modifier.fillMaxSize()
+                    Box(
+                        modifier = Modifier
+                            .weight(0.45f)
+                            .fillMaxHeight()
+                            .padding(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .sizeIn(maxWidth = 300.dp, maxHeight = 300.dp)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(54.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CoverImage(
+                                    url = uiState.currentSong?.coverUrl,
+                                    contentDescription = uiState.currentSong?.title,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+
+                            Text(
+                                text = uiState.currentSong?.title ?: "",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PlayerColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Spacer(Modifier.height(4.dp))
+
+                            Text(
+                                text = uiState.currentSong?.artist ?: "",
+                                fontSize = 14.sp,
+                                color = PlayerColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
+                    }
 
-                        Spacer(Modifier.height(16.dp))
-
-                        Text(
-                            text = uiState.currentSong?.title ?: "",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PlayerColors.TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(Modifier.height(4.dp))
-
-                        Text(
-                            text = uiState.currentSong?.artist ?: "",
-                            fontSize = 14.sp,
-                            color = PlayerColors.TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Box(
+                        modifier = Modifier
+                            .weight(0.55f)
+                            .fillMaxHeight()
+                            .padding(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val highlightColor = when (uiState.lyricHighlightColor) {
+                            2 -> MaterialTheme.colorScheme.primary
+                            else -> PlayerColors.TextPrimary
+                        }
+                        LyricsPanel(
+                            lyrics = uiState.lyrics,
+                            currentIndex = uiState.currentLyricIndex,
+                            currentPosition = uiState.currentPosition,
+                            highlightColor = highlightColor,
+                            fontSize = uiState.lyricFontSize
                         )
                     }
                 }
-
-                Box(
-                    modifier = Modifier
-                        .weight(0.55f)
-                        .fillMaxHeight()
-                        .padding(48.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val highlightColor = when (uiState.lyricHighlightColor) {
-                        2 -> MaterialTheme.colorScheme.primary
-                        else -> PlayerColors.TextPrimary
-                    }
-                    LyricsPanel(
-                        lyrics = uiState.lyrics,
-                        currentIndex = uiState.currentLyricIndex,
-                        currentPosition = uiState.currentPosition,
-                        highlightColor = highlightColor,
-                        fontSize = uiState.lyricFontSize
-                    )
-                }
-                }
-            }
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("未选择歌曲", color = PlayerColors.TextTertiary, fontSize = 20.sp)
             }
         }
 
         // 左上角返回按钮：与控制栏同显同隐（10s 无操作自动隐藏、点击空白/返回键先关控制栏）
-        AnimatedVisibility(
-            visible = uiState.showControls,
-            enter = fadeIn() + slideInVertically { -it },
-            exit = fadeOut() + slideOutVertically { -it },
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-        ) {
-            TransportButton(
-                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "返回",
-                onClick = onBack
-            )
-        }
-
-        AnimatedVisibility(
-            visible = uiState.showControls,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .pointerInput(Unit) { detectTapGestures { } } // 消费控制栏区域点击，避免触发外部关闭
-        ) {
-            ControlBar(
-                uiState = uiState,
-                onPlayPause = { viewModel.togglePlay() },
-                onNext = { viewModel.nextTrack() },
-                onPrevious = { viewModel.previousTrack() },
-                onSeek = { viewModel.seekTo(it) },
-                onCyclePlayMode = { viewModel.cyclePlayMode() },
-                onToggleQueue = { viewModel.toggleQueueDrawer() },
-                // 音效总入口：均衡器或音效任一开启即显示（总开关在设置页）
-                onToggleSound = if (uiState.eqEnabled || uiState.sfxEnabled) ({ viewModel.toggleSoundPanel() }) else null,
-                onToggleFavorite = { viewModel.toggleFavorite() },
-                onCycleAudioTrack = { viewModel.cycleAudioTrack() },
-                onToggleAccompaniment = { viewModel.toggleAccompaniment() },
-                onRefreshLyrics = { viewModel.refreshLyrics() },
-                playPauseFocusRequester = controlBarFocus,
-                soundButtonFocusRequester = soundButtonFocus,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // 控制栏隐藏时的触屏入口：用 pointerInput 而非 clickable，避免进入遥控器焦点链
-        AnimatedVisibility(
-            visible = !uiState.showControls && !uiState.showQueueDrawer && !uiState.showSoundPanel,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp)
-        ) {
-            Box(
+        // K 歌模式下不显示返回按钮（已内置在底部控制栏）
+        if (!uiState.karaokeModeEnabled) {
+            AnimatedVisibility(
+                visible = uiState.showControls,
+                enter = fadeIn() + slideInVertically { -it },
+                exit = fadeOut() + slideOutVertically { -it },
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(PlayerColors.TouchEntryBg)
-                    .pointerInput(Unit) { detectTapGestures { viewModel.showControls() } },
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowUp,
-                    contentDescription = "显示控制栏",
-                    tint = PlayerColors.TouchEntryIcon,
-                    modifier = Modifier.size(26.dp)
+                TransportButton(
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回",
+                    onClick = onBack
                 )
             }
         }
 
+        // 控制栏：K 歌模式下不显示（有独立的 KaraokePlaybackScreen 控制栏）
+        if (!uiState.karaokeModeEnabled) {
+            AnimatedVisibility(
+                visible = uiState.showControls,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .pointerInput(Unit) { detectTapGestures { } } // 消费控制栏区域点击，避免触发外部关闭
+            ) {
+                ControlBar(
+                    uiState = uiState,
+                    onPlayPause = { viewModel.togglePlay() },
+                    onNext = { viewModel.nextTrack() },
+                    onPrevious = { viewModel.previousTrack() },
+                    onSeek = { viewModel.seekTo(it) },
+                    onCyclePlayMode = { viewModel.cyclePlayMode() },
+                    onToggleQueue = { viewModel.toggleQueueDrawer() },
+                    // 音效总入口：均衡器或音效任一开启即显示（总开关在设置页）
+                    onToggleSound = if (uiState.eqEnabled || uiState.sfxEnabled) ({ viewModel.toggleSoundPanel() }) else null,
+                    onToggleFavorite = { viewModel.toggleFavorite() },
+                    onCycleAudioTrack = { viewModel.cycleAudioTrack() },
+                    onRefreshLyrics = { viewModel.refreshLyrics() },
+                    onEnterKaraokeMode = { viewModel.enterKaraokeMode() },
+                    playPauseFocusRequester = controlBarFocus,
+                    soundButtonFocusRequester = soundButtonFocus,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // 控制栏隐藏时的触屏入口：用 pointerInput 而非 clickable，避免进入遥控器焦点链
+            AnimatedVisibility(
+                visible = !uiState.showControls && !uiState.showQueueDrawer && !uiState.showSoundPanel,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(PlayerColors.TouchEntryBg)
+                        .pointerInput(Unit) { detectTapGestures { viewModel.showControls() } },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.KeyboardArrowUp,
+                        contentDescription = "显示控制栏",
+                        tint = PlayerColors.TouchEntryIcon,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+        }
+
+        // 队列抽屉
         AnimatedVisibility(
             visible = uiState.showQueueDrawer,
             enter = slideInHorizontally { -it },
@@ -449,19 +491,18 @@ fun PlayerScreen(
                 eqSupported = uiState.eqSupported,
                 eqEnabled = uiState.eqEnabled,
                 eqPreset = uiState.eqPreset,
+                eqPresetKeys = uiState.eqPresetKeys,
+                eqPresetNames = uiState.eqPresetNames,
                 eqBands = uiState.eqBands,
                 eqBandFrequencies = uiState.eqBandFrequencies,
                 eqBandLevelMin = uiState.eqBandLevelMin,
                 eqBandLevelMax = uiState.eqBandLevelMax,
-                eqPresetKeys = uiState.eqPresetKeys,
-                eqPresetNames = uiState.eqPresetNames,
                 onSetEqEnabled = { viewModel.setEqualizerEnabled(it) },
                 onSetEqPreset = { viewModel.setEqualizerPreset(it) },
-                onSetEqBand = { index, level -> viewModel.setEqualizerBand(index, level) },
-                initialFocusRequester = soundPanelFocus,
-                modifier = Modifier.fillMaxHeight().width(440.dp)
+                onSetEqBand = { bandIndex, levelDb ->
+                    viewModel.setEqualizerBand(bandIndex, levelDb)
+                }
             )
         }
     }
 }
-
