@@ -1000,44 +1000,65 @@ class PlayerController @Inject constructor(
 
     /** K 歌点歌：追加到独立列表末尾（与扫码点歌共用） */
     fun karaokeAdd(song: Song) {
-        if (!_state.value.karaokeActive) return
-        if (_state.value.karaokeList.any { it.id == song.id }) return
-        val newList = _state.value.karaokeList + song
-        _state.update { it.copy(karaokeList = newList) }
-        withController { c -> c.addMediaItem(buildMediaItem(song)) }
+        Log.i("SongloftOrderAdd", "[PlayerController] karaokeAdd called id=${song.id} title='${song.title}' thread=${Thread.currentThread().name}")
+        // NanoHTTPD 工作线程回调，整个函数体切到主线程，避免 MediaController 跨线程异常
+        scope.launch {
+            Log.i("SongloftOrderAdd", "[PlayerController] karaokeAdd on main id=${song.id}")
+            if (!_state.value.karaokeActive) {
+                Log.w("SongloftOrderAdd", "karaokeActive=false")
+                return@launch
+            }
+            if (_state.value.karaokeList.any { it.id == song.id }) {
+                Log.w("SongloftOrderAdd", "dup id=${song.id}")
+                return@launch
+            }
+            val newList = _state.value.karaokeList + song
+            _state.update { it.copy(karaokeList = newList) }
+            withController { c ->
+                try {
+                    c.addMediaItem(buildMediaItem(song))
+                    Log.i("SongloftOrderAdd", "addMediaItem OK")
+                } catch (e: Throwable) {
+                    Log.e("SongloftOrderAdd", "addMediaItem failed", e)
+                }
+            }
+        }
     }
 
     /** K 歌置顶：移动到当前演唱曲的下一首（下一个演唱） */
     fun karaokeMoveTop(index: Int) {
-        if (!_state.value.karaokeActive) return
-        val list = _state.value.karaokeList
-        val cur = _state.value.currentIndex
-        if (index !in list.indices || index == cur) return
-        val song = list[index]
-        val newList = list.toMutableList().apply {
-            removeAt(index)
-            // 始终落到当前曲正后方（cur+1），即"下一个演唱"的位置
-            add((cur + 1).coerceIn(0, size), song)
-        }
-        // 当前曲位置不变，仍指向 cur
-        _state.update { it.copy(karaokeList = newList, currentIndex = cur) }
-        withController { c ->
-            // 引擎与数据使用同一目标位（cur+1），避免依赖可能滞后的 currentMediaItemIndex
-            val target = (cur + 1).coerceIn(0, c.mediaItemCount)
-            runCatching { c.moveMediaItem(index, target) }
+        // NanoHTTPD 工作线程回调，整个函数体切到主线程，避免 MediaController 跨线程异常
+        scope.launch {
+            if (!_state.value.karaokeActive) return@launch
+            val list = _state.value.karaokeList
+            val cur = _state.value.currentIndex
+            if (index !in list.indices || index == cur) return@launch
+            val song = list[index]
+            val newList = list.toMutableList().apply {
+                removeAt(index)
+                add((cur + 1).coerceIn(0, size), song)
+            }
+            _state.update { it.copy(karaokeList = newList, currentIndex = cur) }
+            withController { c ->
+                val target = (cur + 1).coerceIn(0, c.mediaItemCount)
+                runCatching { c.moveMediaItem(index, target) }
+            }
         }
     }
 
     /** K 歌删除：从独立列表移除（不允许删除正在演唱的曲目） */
     fun karaokeRemove(index: Int) {
-        if (!_state.value.karaokeActive) return
-        val list = _state.value.karaokeList
-        if (index !in list.indices || index == _state.value.currentIndex) return
-        val newList = list.toMutableList().apply { removeAt(index) }
-        _state.update { it.copy(karaokeList = newList) }
-        withController { c ->
-            if (index in 0 until c.mediaItemCount) runCatching { c.removeMediaItem(index) }
-            _state.update { it.copy(currentIndex = c.currentMediaItemIndex) }
+        // NanoHTTPD 工作线程回调，整个函数体切到主线程，避免 MediaController 跨线程异常
+        scope.launch {
+            if (!_state.value.karaokeActive) return@launch
+            val list = _state.value.karaokeList
+            if (index !in list.indices || index == _state.value.currentIndex) return@launch
+            val newList = list.toMutableList().apply { removeAt(index) }
+            _state.update { it.copy(karaokeList = newList) }
+            withController { c ->
+                if (index in 0 until c.mediaItemCount) runCatching { c.removeMediaItem(index) }
+                _state.update { it.copy(currentIndex = c.currentMediaItemIndex) }
+            }
         }
     }
 
