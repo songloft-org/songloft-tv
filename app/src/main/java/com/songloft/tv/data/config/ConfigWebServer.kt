@@ -1,6 +1,7 @@
 package com.songloft.tv.data.config
 
 import android.util.Base64
+import android.util.Log
 import com.google.gson.Gson
 import com.songloft.tv.BuildConfig
 import com.songloft.tv.data.model.Song
@@ -134,17 +135,29 @@ class ConfigWebServer(
                 ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式，无法搜索。")
             val keyword = session.parameters["keyword"]?.firstOrNull()?.trim().orEmpty()
             if (keyword.isBlank()) return text(Response.Status.BAD_REQUEST, "请输入搜索关键字。")
-            val results = runCatching { onOrderSearch(keyword) }.getOrDefault(emptyList())
+            val results = runCatching { onOrderSearch(keyword) }
+                .getOrDefault(emptyList())
+                .filter { it.type != "radio" }
             return json(Response.Status.OK, gson.toJson(results))
         }
         if (session.method == Method.POST && session.uri == "/order/add") {
-            session.parseBody(HashMap())
+            try {
+                session.parseBody(HashMap())
+            } catch (e: Throwable) {
+                Log.e("SongloftOrderAdd", "parseBody failed", e)
+                return text(Response.Status.INTERNAL_ERROR, "parse error: ${e.message}")
+            }
             val onOrderAdd = onOrderAdd
                 ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式，无法点歌。")
             val songJson = session.parameters["song"]?.firstOrNull().orEmpty()
             val song = runCatching { gson.fromJson(songJson, Song::class.java) }.getOrNull()
                 ?: return text(Response.Status.BAD_REQUEST, "歌曲数据无效。")
-            onOrderAdd(song)
+            try {
+                onOrderAdd(song)
+            } catch (e: Throwable) {
+                Log.e("SongloftOrderAdd", "onOrderAdd threw", e)
+                return text(Response.Status.INTERNAL_ERROR, "onOrderAdd error: ${e.message}")
+            }
             return text(Response.Status.OK, "已点歌：${song.title}")
         }
         if (session.method == Method.POST && session.uri == "/order/top") {
@@ -310,10 +323,10 @@ class ConfigWebServer(
              .feedback a{color:#8fb0e8;text-decoration:none}
              .order-sep{margin:20px 0 8px;padding-top:12px;border-top:1px solid #374151;
              font-size:14px;color:#8fb0e8;text-align:center}
-             #orderResults a,#orderQueue a{display:flex;align-items:center;justify-content:space-between;
+             #orderResults .row,#orderQueue .row{display:flex;align-items:center;justify-content:space-between;
              padding:12px;margin-bottom:8px;font-size:14px;border:1px solid #374151;border-radius:8px;
              background:#1f2937;color:#eee;text-decoration:none}
-             #orderResults a span,#orderQueue a span{color:#6b7280;font-size:12px;margin-left:8px;
+             #orderResults .row span:first-child,#orderQueue .row span:first-child{color:#6b7280;font-size:12px;margin-left:8px;
              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
              .act{padding:6px 10px;margin-left:8px;font-size:13px;border:none;border-radius:6px;
              background:#415F91;color:#fff;cursor:pointer}
@@ -434,32 +447,40 @@ class ConfigWebServer(
               var el=document.getElementById('orderResults');
               if(!list.length){el.innerHTML='<div class="hint">无结果</div>';return;}
               el.innerHTML=list.map(function(s){
-                var json=JSON.stringify(s).replace(/"/g,'&quot;');
-                return '<a href="javascript:void(0)"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
-                  '</span><button class="act" onclick="orderAdd(\''+encodeURIComponent(json)+'\')">点歌</button></a>';
+                var json=JSON.stringify(s);
+                return '<div class="row"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                  '</span><button class="act" data-order-add="'+escHtml(json)+'">点歌</button></div>';
               }).join('');
+              el.querySelectorAll('button[data-order-add]').forEach(function(btn){
+                btn.addEventListener('click',function(){
+                  orderAdd(btn.getAttribute('data-order-add'));
+                });
+              });
             }
-            function escHtml(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-            window.orderAdd=function(enc){
-              var song=decodeURIComponent(enc);
+            function escHtml(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+            window.orderAdd=function(songJson){
               fetch('/order/add',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                body:'song='+encodeURIComponent(song)})
-                .then(function(r){return r.text().then(function(t){
-                  loadOrder();
-                });});
+                body:'song='+encodeURIComponent(songJson)})
+                .then(function(){loadOrder();})
+                .catch(function(){loadOrder();});
             };
             function loadOrder(){
               fetch('/order/queue').then(function(r){return r.json();}).then(function(list){
                 var el=document.getElementById('orderQueue');
                 if(!list.length){el.innerHTML='<div class="hint">队列为空</div>';return;}
                 el.innerHTML=list.map(function(s){
-                  return '<a href="javascript:void(0)"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                  return '<div class="row" data-index="'+s.index+'"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
                     '</span><span>'+
-                    '<button class="act" onclick="orderTop('+s.index+')">置顶</button>'+
-                    '<button class="act del" onclick="orderRemove('+s.index+')">删除</button>'+
-                    '</span></a>';
+                    '<button class="act" data-act="top">置顶</button>'+
+                    '<button class="act del" data-act="remove">删除</button>'+
+                    '</span></div>';
                 }).join('');
+                el.querySelectorAll('.row').forEach(function(row){
+                  var idx=row.getAttribute('data-index');
+                  row.querySelector('button[data-act="top"]').addEventListener('click',function(){orderTop(idx);});
+                  row.querySelector('button[data-act="remove"]').addEventListener('click',function(){orderRemove(idx);});
+                });
               }).catch(function(){
                 document.getElementById('orderQueue').innerHTML='<div class="hint">加载失败</div>';
               });
