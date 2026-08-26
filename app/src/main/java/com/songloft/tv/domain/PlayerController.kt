@@ -857,6 +857,18 @@ class PlayerController @Inject constructor(
         }
     }
 
+    /** 强制回到原唱：双音轨资源切回第一轨，否则关闭人声消除；伴唱音效覆盖随之还原 */
+    fun restoreOriginal() {
+        val s = _state.value
+        val multiTrack = (s.currentSong?.hasMultiTrack == true) || s.embeddedTracks.size > 1
+        if (multiTrack) {
+            val first = s.currentSong?.tracks?.firstOrNull() ?: return
+            if (s.currentTrack != first) switchTrack(first)
+        } else {
+            if (s.vocalRemovalEnabled) setVocalRemovalEnabled(false)
+        }
+    }
+
     /** 当前是否处于"伴唱"：双音轨资源看所选音轨，否则看人声消除开关 */
     fun isAccompanimentOn(): Boolean {
         val s = _state.value

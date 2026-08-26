@@ -1,5 +1,6 @@
 package com.songloft.tv.ui.karaoke
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.songloft.tv.data.model.LyricLine
+import com.songloft.tv.ui.theme.PlayerColors
 import kotlinx.coroutines.delay
 import kotlin.math.pow
 
@@ -106,10 +108,11 @@ fun KaraokeLyricsView(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 72.dp),
-        horizontalAlignment = Alignment.Start
+            .padding(horizontal = 48.dp),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.Bottom
     ) {
-        // 顶部槽位
+        // 顶部槽位：当前行，头部靠左（经典卡拉 OK 样式）
         topLine?.let { line ->
             val progress = if (onTopIsCurrent) {
                 lineProgress(line.time, currentLineEndMs, lyricTickMs)
@@ -118,15 +121,15 @@ fun KaraokeLyricsView(
             KaraokeLineText(
                 text = line.text,
                 progress = progress,
-                fontSize = 50.sp,
-                textAlign = TextAlign.End,
+                fontSize = 36.sp,
+                textAlign = TextAlign.Start,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
         Spacer(Modifier.height(12.dp))
 
-        // 底部槽位
+        // 底部槽位：下一行预览，尾部靠右
         bottomLine?.let { line ->
             val progress = if (!onTopIsCurrent) {
                 lineProgress(line.time, currentLineEndMs, lyricTickMs)
@@ -135,7 +138,7 @@ fun KaraokeLyricsView(
             KaraokeLineText(
                 text = line.text,
                 progress = progress,
-                fontSize = 50.sp,
+                fontSize = 36.sp,
                 textAlign = TextAlign.End,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -167,9 +170,9 @@ internal fun lineProgress(lineStartMs: Long, lineEndMs: Long, currentMs: Long): 
 internal fun KaraokeLineText(
     text: String,
     progress: Float,
-    fontSize: TextUnit = 50.sp,
+    fontSize: TextUnit = 36.sp,
     textAlign: TextAlign = TextAlign.End,
-    baseColor: Color = Color.White.copy(alpha = 0.3f),
+    baseColor: Color = PlayerColors.TextPrimary,
     highlightColor: Color = Color(0xFFFFD700),
     modifier: Modifier = Modifier
 ) {
@@ -223,7 +226,7 @@ internal fun KaraokeLineText(
                             }
 
                             clipRect(
-                                left = 0f,
+                                left = lr.getLineLeft(line),
                                 top = lr.getLineTop(line),
                                 right = boundaryX,
                                 bottom = lr.getLineBottom(line)

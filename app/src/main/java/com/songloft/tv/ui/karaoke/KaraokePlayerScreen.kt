@@ -1,6 +1,10 @@
 package com.songloft.tv.ui.karaoke
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,10 +17,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -64,7 +71,8 @@ fun KaraokePlayerScreen(
     onToggleAccompaniment: () -> Unit,
     onToggleQueue: () -> Unit,
     playPauseFocusRequester: FocusRequester? = null,
-    backButtonFocusRequester: FocusRequester? = null
+    backButtonFocusRequester: FocusRequester? = null,
+    onShowControls: () -> Unit = {}
 ) {
     val showControls = uiState.showControls
     val backFocusRequester = backButtonFocusRequester ?: remember { FocusRequester() }
@@ -86,30 +94,13 @@ fun KaraokePlayerScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(96.dp))
+            Spacer(Modifier.height(72.dp))
 
-            // 歌曲信息（与主播放器左侧封面区同款样式）
+            // 歌曲信息（紧凑展示，不占用歌词空间）
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier
-                        .sizeIn(maxWidth = 220.dp, maxHeight = 220.dp)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(40.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CoverImage(
-                        url = uiState.currentSong?.coverUrl,
-                        contentDescription = uiState.currentSong?.title,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-
                 Text(
                     text = uiState.currentSong?.title ?: "",
-                    fontSize = 22.sp,
+                    fontSize = 42.sp,
                     fontWeight = FontWeight.Bold,
                     color = PlayerColors.TextPrimary,
                     maxLines = 1,
@@ -118,24 +109,24 @@ fun KaraokePlayerScreen(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = uiState.currentSong?.artist ?: "",
-                    fontSize = 14.sp,
+                    fontSize = 22.sp,
                     color = PlayerColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // 双行歌词
+            // 双行歌词（锚定底部，位于展开的控制栏上方，保持间距）
             KaraokeLyricsView(
                 lyrics = uiState.lyrics,
                 progressMs = uiState.currentPosition,
                 isPlaying = uiState.isPlaying,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .fillMaxHeight(0.55f)
+                    .weight(1f)
+                    .padding(bottom = 150.dp)
             )
         }
 
@@ -188,6 +179,32 @@ fun KaraokePlayerScreen(
                     onToggleQueue = onToggleQueue,
                     playPauseFocusRequester = playPauseFocusRequester,
                     backButtonFocusRequester = backFocusRequester
+                )
+            }
+        }
+
+        // 控制栏隐藏时的触屏入口（同主播放器：小箭头唤起）
+        AnimatedVisibility(
+            visible = !showControls && !uiState.showQueueDrawer && !uiState.showSoundPanel,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(PlayerColors.TouchEntryBg)
+                        .pointerInput(Unit) { detectTapGestures(onTap = { onShowControls() }) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowUp,
+                    contentDescription = "显示控制栏",
+                    tint = PlayerColors.TouchEntryIcon,
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }

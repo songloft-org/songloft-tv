@@ -289,7 +289,9 @@ fun PlayerScreen(
                     onRefreshLyrics = { viewModel.refreshLyrics() },
                     onToggleAccompaniment = { viewModel.toggleAccompaniment() },
                     onToggleQueue = { viewModel.toggleQueueDrawer() },
-                    playPauseFocusRequester = playPauseFocusRequester
+                    playPauseFocusRequester = playPauseFocusRequester,
+                    backButtonFocusRequester = micButtonFocus,
+                    onShowControls = { viewModel.showControls() }
                 )
             }
             

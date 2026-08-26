@@ -327,17 +327,16 @@ class PlayerViewModel @Inject constructor(
 
     fun enterKaraokeMode() {
         _uiState.update { it.copy(karaokeModeEnabled = true) }
-        // 优先双音轨切换，否则开启人声消除（K 歌默认需要伴奏）
-        playerController.toggleAccompanimentMode()
+        // 进入 K 歌默认原唱：不切换音轨/不消人声，保持主播放器原样
         startKaraokeOrderServer()
     }
 
     fun exitKaraokeMode() {
         _uiState.update { it.copy(karaokeModeEnabled = false) }
-        // 退出时停止扫码点歌服务并恢复原唱状态展示
+        // 退出时停止扫码点歌服务
         stopKaraokeOrderServer()
-        // 退出时恢复原唱（可选：保留当前伴唱状态）
-        // playerController.toggleAccompanimentMode()
+        // 退出前强制切回原唱，保证主播放器始终为原唱
+        playerController.restoreOriginal()
     }
 
     // ===== 扫码点歌（局域网 Web 服务）=====
