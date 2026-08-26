@@ -92,6 +92,11 @@ fun SoundPanel(
     var panelViewport by remember { mutableStateOf(0) }
     val scrollMargin = with(LocalDensity.current) { 8.dp.toPx() }
 
+    // 面板打开时把默认焦点落到首个可聚焦项（音效 chip / 均衡器开关），
+    // 配合外层 Dialog 模态窗口，焦点被锁定在面板内、不会停留在底部播放器。
+    LaunchedEffect(Unit) {
+        runCatching { initialFocusRequester?.requestFocus() }
+    }
     // 面板内可聚焦链：音效 chips → 强度条 → 均衡器开关 chips → 预设 chips → 频段行
     // 各段是否"贴底"决定要不要拦截方向键，避免焦点逃出面板
     val eqToggleVisible = eqSupported

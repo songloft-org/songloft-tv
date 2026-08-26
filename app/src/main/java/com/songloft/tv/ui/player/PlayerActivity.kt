@@ -507,38 +507,49 @@ fun PlayerScreen(
             }
         }
 
-        // 合并音效面板从右侧滑入（音效模式 + 均衡器），与左侧播放队列抽屉对称
-        AnimatedVisibility(
-            visible = uiState.showSoundPanel,
-            enter = slideInHorizontally { it },
-            exit = slideOutHorizontally { it },
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            SoundPanel(
-                sfxSupported = uiState.sfxSupported,
-                sfxOnA2dp = uiState.sfxOnA2dp,
-                sfxMode = uiState.sfxMode,
-                sfxStrength = uiState.sfxStrength,
-                sfxModeKeys = uiState.sfxModeKeys,
-                sfxModeNames = uiState.sfxModeNames,
-                sfxModeSupported = uiState.sfxModeSupported,
-                onSetSfxMode = { viewModel.setSfxMode(it) },
-                onSetSfxStrength = { viewModel.setSfxStrength(it) },
-                eqSupported = uiState.eqSupported,
-                eqEnabled = uiState.eqEnabled,
-                eqPreset = uiState.eqPreset,
-                eqPresetKeys = uiState.eqPresetKeys,
-                eqPresetNames = uiState.eqPresetNames,
-                eqBands = uiState.eqBands,
-                eqBandFrequencies = uiState.eqBandFrequencies,
-                eqBandLevelMin = uiState.eqBandLevelMin,
-                eqBandLevelMax = uiState.eqBandLevelMax,
-                onSetEqEnabled = { viewModel.setEqualizerEnabled(it) },
-                onSetEqPreset = { viewModel.setEqualizerPreset(it) },
-                onSetEqBand = { bandIndex, levelDb ->
-                    viewModel.setEqualizerBand(bandIndex, levelDb)
+        // 合并音效面板（独立模态窗口，焦点锁定在弹窗内，方向键不会跳到底部播放器）
+        if (uiState.showSoundPanel) {
+            Dialog(
+                onDismissRequest = { viewModel.closeSoundPanel() },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = slideInHorizontally { it },
+                        exit = slideOutHorizontally { it },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        SoundPanel(
+                            sfxSupported = uiState.sfxSupported,
+                            sfxOnA2dp = uiState.sfxOnA2dp,
+                            sfxMode = uiState.sfxMode,
+                            sfxStrength = uiState.sfxStrength,
+                            sfxModeKeys = uiState.sfxModeKeys,
+                            sfxModeNames = uiState.sfxModeNames,
+                            sfxModeSupported = uiState.sfxModeSupported,
+                            onSetSfxMode = { viewModel.setSfxMode(it) },
+                            onSetSfxStrength = { viewModel.setSfxStrength(it) },
+                            eqSupported = uiState.eqSupported,
+                            eqEnabled = uiState.eqEnabled,
+                            eqPreset = uiState.eqPreset,
+                            eqPresetKeys = uiState.eqPresetKeys,
+                            eqPresetNames = uiState.eqPresetNames,
+                            eqBands = uiState.eqBands,
+                            eqBandFrequencies = uiState.eqBandFrequencies,
+                            eqBandLevelMin = uiState.eqBandLevelMin,
+                            eqBandLevelMax = uiState.eqBandLevelMax,
+                            onSetEqEnabled = { viewModel.setEqualizerEnabled(it) },
+                            onSetEqPreset = { viewModel.setEqualizerPreset(it) },
+                            onSetEqBand = { bandIndex, levelDb ->
+                                viewModel.setEqualizerBand(bandIndex, levelDb)
+                            },
+                            initialFocusRequester = soundPanelFocus,
+                            modifier = Modifier.fillMaxHeight().width(420.dp)
+                        )
+                    }
                 }
-            )
+            }
         }
     }
 }
