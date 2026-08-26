@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -184,23 +186,29 @@ private fun KaraokeQueueRow(
     onRemove: () -> Unit,
     initialFocusRequester: FocusRequester? = null
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    var rowFocused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isFocused) PlayerColors.RowFocused else Color.Transparent)
-            .then(if (initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier)
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onSongClick() }
+            .background(if (rowFocused) PlayerColors.RowFocused else Color.Transparent)
+            // 行本身不抢占焦点：聚焦态由子按钮聚合；歌曲名不可被焦点选中
+            .onFocusChanged { rowFocused = it.hasFocus }
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        // 歌曲主区域：不可聚焦，仅触摸点击可演唱该曲；D-Pad 焦点直接落在右侧按钮
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .pointerInput(Unit) { detectTapGestures { onSongClick() } }
+                .padding(end = 8.dp)
+        ) {
             Text(
                 song.title, fontSize = 14.sp,
-                fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Normal,
-                color = if (isFocused) PlayerColors.TextPrimary else PlayerColors.TextSecondary,
+                fontWeight = if (rowFocused) FontWeight.Bold else FontWeight.Normal,
+                color = if (rowFocused) PlayerColors.TextPrimary else PlayerColors.TextSecondary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             if (song.artist != null) {
@@ -212,13 +220,14 @@ private fun KaraokeQueueRow(
             }
         }
 
-        // 置顶：移动到下一首演唱
+        // 置顶：移动到下一首演唱（独立可聚焦，初始焦点落在此）
         KaraokeListIconButton(
             imageVector = Icons.Rounded.KeyboardArrowUp,
             contentDescription = "置顶",
-            onClick = onMoveTop
+            onClick = onMoveTop,
+            focusRequester = initialFocusRequester
         )
-        // 删除：移出 K 歌列表
+        // 删除：移出 K 歌列表（独立可聚焦按钮）
         KaraokeListIconButton(
             imageVector = Icons.Rounded.Delete,
             contentDescription = "删除",
@@ -314,7 +323,8 @@ private fun KaraokeDialogButton(
 private fun KaraokeListIconButton(
     imageVector: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Icon(
@@ -328,6 +338,7 @@ private fun KaraokeListIconButton(
                 if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                 else Color.Transparent
             )
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { isFocused = it.isFocused }
             .clickable { onClick() }
             .focusable()

@@ -60,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.songloft.tv.data.api.UrlHelper
@@ -466,33 +468,42 @@ fun PlayerScreen(
             }
         }
 
-        // 队列抽屉
-        AnimatedVisibility(
-            visible = uiState.showQueueDrawer,
-            enter = slideInHorizontally { -it },
-            exit = slideOutHorizontally { -it },
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            if (uiState.karaokeModeEnabled) {
-                KaraokeQueueList(
-                    queue = uiState.karaokeList,
-                    currentIndex = uiState.currentIndex,
-                    onClose = { viewModel.toggleQueueDrawer() },
-                    onSongClick = { viewModel.karaokePlayAt(it) },
-                    onMoveTop = { viewModel.karaokeMoveTop(it) },
-                    onRemove = { viewModel.karaokeRemove(it) },
-                    initialFocusRequester = queueDrawerFocus,
-                    modifier = Modifier.fillMaxHeight().width(400.dp)
-                )
-            } else {
-                QueueDrawer(
-                    queue = uiState.queue,
-                    currentIndex = uiState.currentIndex,
-                    onClose = { viewModel.toggleQueueDrawer() },
-                    onSongClick = { viewModel.playAt(it) },
-                    initialFocusRequester = queueDrawerFocus,
-                    modifier = Modifier.fillMaxHeight().width(400.dp)
-                )
+        // 队列抽屉（独立模态窗口，焦点锁定在弹窗内，方向键不会跳到主界面）
+        if (uiState.showQueueDrawer) {
+            Dialog(
+                onDismissRequest = { viewModel.toggleQueueDrawer() },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = slideInHorizontally { -it },
+                        exit = slideOutHorizontally { -it },
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    ) {
+                        if (uiState.karaokeModeEnabled) {
+                            KaraokeQueueList(
+                                queue = uiState.karaokeList,
+                                currentIndex = uiState.currentIndex,
+                                onClose = { viewModel.toggleQueueDrawer() },
+                                onSongClick = { viewModel.karaokePlayAt(it) },
+                                onMoveTop = { viewModel.karaokeMoveTop(it) },
+                                onRemove = { viewModel.karaokeRemove(it) },
+                                initialFocusRequester = queueDrawerFocus,
+                                modifier = Modifier.fillMaxHeight().width(400.dp)
+                            )
+                        } else {
+                            QueueDrawer(
+                                queue = uiState.queue,
+                                currentIndex = uiState.currentIndex,
+                                onClose = { viewModel.toggleQueueDrawer() },
+                                onSongClick = { viewModel.playAt(it) },
+                                initialFocusRequester = queueDrawerFocus,
+                                modifier = Modifier.fillMaxHeight().width(400.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 

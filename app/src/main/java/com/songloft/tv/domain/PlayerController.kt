@@ -961,9 +961,12 @@ class PlayerController @Inject constructor(
         mainQueueBackup = backup
         mainIndexBackup = _state.value.currentIndex
         mainPosBackup = controller?.currentPosition ?: 0L
-        val list = backup.toList()
-        _state.update { it.copy(karaokeActive = true, karaokeList = list) }
-        loadIntoEngine(list, _state.value.currentIndex, mainPosBackup)
+        // K 歌只关注未唱过的歌曲：从当前播放曲开始截取（丢弃其之前已播放过的曲目），
+        // 并保证当前曲位于列表首位（index 0），置顶才能精确落到"下一首"位置。
+        val startIndex = _state.value.currentIndex.coerceIn(0, (backup.size - 1).coerceAtLeast(0))
+        val list = backup.drop(startIndex)
+        _state.update { it.copy(karaokeActive = true, karaokeList = list, currentIndex = 0) }
+        loadIntoEngine(list, 0, mainPosBackup)
     }
 
     /** 退出 K 歌：还原主页队列与播放进度，清空 K 歌列表 */
