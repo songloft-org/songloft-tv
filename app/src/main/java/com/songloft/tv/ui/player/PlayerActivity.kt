@@ -65,7 +65,7 @@ import coil.compose.AsyncImage
 import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.ui.components.CoverImage
-import com.songloft.tv.ui.components.KaraokePlaybackScreen
+import com.songloft.tv.ui.karaoke.KaraokePlayerScreen
 import com.songloft.tv.ui.theme.PlayerColors
 import com.songloft.tv.ui.theme.TvTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -105,13 +105,12 @@ fun PlayerScreen(
 
     var interactionCount by remember { mutableIntStateOf(0) }
     val controlBarFocus = remember { FocusRequester() }
+    val micButtonFocus = remember { FocusRequester() }
     val queueDrawerFocus = remember { FocusRequester() }
     val soundPanelFocus = remember { FocusRequester() }
     val soundButtonFocus = remember { FocusRequester() }
+    val playPauseFocusRequester = remember { FocusRequester() }
     
-    // K 歌模式焦点请求器（待实现）
-    // val playPauseFocusRequester = remember { FocusRequester() }
-
     BackHandler {
         when {
             uiState.showQueueDrawer -> viewModel.closeQueueDrawer()
@@ -137,13 +136,14 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(uiState.showControls, uiState.showQueueDrawer, uiState.showSoundPanel) {
+    LaunchedEffect(uiState.showControls, uiState.showQueueDrawer, uiState.showSoundPanel, uiState.karaokeModeEnabled) {
         // 等待 AnimatedVisibility 完成组合后再请求焦点
         delay(100)
         runCatching {
             when {
                 uiState.showQueueDrawer -> queueDrawerFocus.requestFocus()
                 uiState.showSoundPanel -> soundPanelFocus.requestFocus()
+                uiState.karaokeModeEnabled -> playPauseFocusRequester.requestFocus()
                 uiState.showControls -> controlBarFocus.requestFocus()
             }
         }
@@ -163,9 +163,6 @@ fun PlayerScreen(
     var didSeekDuringPress by remember { mutableStateOf(false) }
     val seekStepMs = 10_000L
     
-    // K 歌模式焦点请求器
-    val playPauseFocusRequester = remember { FocusRequester() }
-    
     // === K 歌模式入口按钮聚焦监听 ===
     var karaokeButtonFocused by remember { mutableStateOf(false) }
     LaunchedEffect(karaokeButtonFocused) {
@@ -173,6 +170,16 @@ fun PlayerScreen(
             delay(200) // 延迟进入，避免误触
             // 如果需要键盘触发，可在此添加逻辑
         }
+    }
+
+    // 退出 K 歌模式后，焦点回到主播放器控制栏的"麦克风（K 歌入口）"按钮
+    var wasKaraokeMode by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.karaokeModeEnabled) {
+        if (wasKaraokeMode && !uiState.karaokeModeEnabled) {
+            delay(120)
+            runCatching { micButtonFocus.requestFocus() }
+        }
+        wasKaraokeMode = uiState.karaokeModeEnabled
     }
 
     Box(
@@ -265,21 +272,23 @@ fun PlayerScreen(
     ) {
         // === 渲染两种模式 ===
         when {
-            // K 歌模式（全屏双行歌词）
+            // K 歌模式（独立维护的全屏双行歌词界面）
             uiState.karaokeModeEnabled -> {
-                KaraokePlaybackScreen(
-                    currentSong = uiState.currentSong,
-                    isPlaying = uiState.isPlaying,
-                    lyrics = uiState.lyrics,
-                    coverUrl = uiState.currentSong?.coverUrl,
-                    progressMs = uiState.currentPosition,
-                    durationMs = uiState.duration,
-                    vocalRemovalEnabled = uiState.vocalRemovalEnabled,
-                    onToggleVocalRemoval = { viewModel.toggleAccompaniment() },
-                    onExitKaraoke = { viewModel.exitKaraokeMode() },
+                KaraokePlayerScreen(
+                    uiState = uiState,
+                    orderUrl = uiState.karaokeOrderUrl,
+                    accompanimentOn = uiState.isAccompanimentOn,
+                    onBack = { viewModel.exitKaraokeMode() },
                     onPlayPause = { viewModel.togglePlay() },
                     onNext = { viewModel.nextTrack() },
                     onPrevious = { viewModel.previousTrack() },
+                    onSeek = { viewModel.seekTo(it) },
+                    onSeekBy = { viewModel.seekBy(it) },
+                    onCyclePlayMode = { viewModel.cyclePlayMode() },
+                    onToggleFavorite = { viewModel.toggleFavorite() },
+                    onRefreshLyrics = { viewModel.refreshLyrics() },
+                    onToggleAccompaniment = { viewModel.toggleAccompaniment() },
+                    onToggleQueue = { viewModel.toggleQueueDrawer() },
                     playPauseFocusRequester = playPauseFocusRequester
                 )
             }
@@ -421,6 +430,7 @@ fun PlayerScreen(
                     onCycleAudioTrack = { viewModel.cycleAudioTrack() },
                     onRefreshLyrics = { viewModel.refreshLyrics() },
                     onEnterKaraokeMode = { viewModel.enterKaraokeMode() },
+                    micButtonFocusRequester = micButtonFocus,
                     playPauseFocusRequester = controlBarFocus,
                     soundButtonFocusRequester = soundButtonFocus,
                     modifier = Modifier.fillMaxWidth()

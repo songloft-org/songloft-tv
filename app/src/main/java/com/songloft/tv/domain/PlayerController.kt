@@ -857,6 +857,63 @@ class PlayerController @Inject constructor(
         }
     }
 
+    /** 当前是否处于"伴唱"：双音轨资源看所选音轨，否则看人声消除开关 */
+    fun isAccompanimentOn(): Boolean {
+        val s = _state.value
+        val multiTrack = (s.currentSong?.hasMultiTrack == true) || s.embeddedTracks.size > 1
+        return if (multiTrack) {
+            val first = s.currentSong?.tracks?.firstOrNull()
+            s.currentTrack != first
+        } else {
+            s.vocalRemovalEnabled
+        }
+    }
+
+    // ===== 播放队列管理（供"扫码点歌"使用）=====
+
+    /** 点歌：追加到播放队列末尾 */
+    fun addToQueue(song: Song) {
+        if (_state.value.queue.any { it.id == song.id }) {
+            Log.d(TAG, "点歌跳过：队列已存在 ${song.title}")
+            return
+        }
+        val queue = _state.value.queue + song
+        _state.update { it.copy(queue = queue) }
+        withController { c -> c.addMediaItem(buildMediaItem(song)) }
+        Log.d(TAG, "点歌成功：${song.title}，队列 ${queue.size} 首")
+    }
+
+    /** 置顶：移动到当前播放曲的下一首（下一个播放） */
+    fun moveToTop(index: Int) {
+        val queue = _state.value.queue
+        val current = _state.value.currentIndex
+        if (index !in queue.indices || index == current) return
+        val song = queue[index]
+        val newQueue = queue.toMutableList().apply {
+            removeAt(index)
+            add(current + 1, song)
+        }
+        _state.update { it.copy(queue = newQueue) }
+        withController { c ->
+            val target = (c.currentMediaItemIndex + 1).coerceIn(0, c.mediaItemCount)
+            runCatching { c.moveMediaItem(index, target) }
+        }
+    }
+
+    /** 删除：从队列移除指定曲目（不允许删除正在播放的曲目） */
+    fun removeFromQueue(index: Int) {
+        val queue = _state.value.queue
+        if (index !in queue.indices || index == _state.value.currentIndex) return
+        val newQueue = queue.toMutableList().apply { removeAt(index) }
+        _state.update { it.copy(queue = newQueue) }
+        withController { c ->
+            if (index in 0 until c.mediaItemCount) runCatching { c.removeMediaItem(index) }
+        }
+    }
+
+    /** 当前播放队列快照（供扫码点歌页读取） */
+    fun getQueue(): List<Song> = _state.value.queue
+
     private fun sendVocalRemovalApply(enabled: Boolean) {
         val c = controller ?: return
         val args = Bundle().apply { putBoolean(MusicService.EXTRA_ENABLED, enabled) }

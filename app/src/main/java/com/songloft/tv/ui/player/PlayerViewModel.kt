@@ -3,18 +3,22 @@ package com.songloft.tv.ui.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.songloft.tv.data.model.LyricLine
+import com.songloft.tv.data.config.ConfigWebServer
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.data.model.Track
+import com.songloft.tv.data.model.LyricLine
 import com.songloft.tv.data.repository.FavoriteRepository
+import fi.iki.elonen.NanoHTTPD
 import com.songloft.tv.data.repository.SongRepository
 import com.songloft.tv.data.storage.PreferencesDataStore
 import com.songloft.tv.domain.LyricParser
 import com.songloft.tv.domain.PlayMode
 import com.songloft.tv.domain.PlayerController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -64,7 +68,11 @@ data class PlayerUiState(
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30,
     // K 歌模式开关
-    val karaokeModeEnabled: Boolean = false
+    val karaokeModeEnabled: Boolean = false,
+    // K 歌"扫码点歌"服务器地址（null 表示未开启）
+    val karaokeOrderUrl: String? = null,
+    // 当前是否处于"伴唱"：双音轨资源看所选音轨，否则看人声消除开关
+    val isAccompanimentOn: Boolean = false
 )
 
 @HiltViewModel
@@ -79,6 +87,10 @@ class PlayerViewModel @Inject constructor(
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var lyricSongId: Long? = null
+
+    override fun onCleared() {
+        stopKaraokeOrderServer()
+    }
 
     init {
         viewModelScope.launch {
@@ -132,7 +144,8 @@ class PlayerViewModel @Inject constructor(
                         sfxModeNames = s.sfxModeNames,
                         sfxModeSupported = s.sfxModeSupported,
                         sfxOnA2dp = s.sfxOnA2dp,
-                        vocalRemovalEnabled = s.vocalRemovalEnabled
+                        vocalRemovalEnabled = s.vocalRemovalEnabled,
+                        isAccompanimentOn = playerController.isAccompanimentOn()
                     )
                 }
                 val songId = s.currentSong?.id
@@ -205,6 +218,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleAccompaniment() = playerController.toggleAccompanimentMode()
+
+    // ===== 扫码点歌（队列管理）=====
+    fun addToQueue(song: com.songloft.tv.data.model.Song) = playerController.addToQueue(song)
+    fun moveQueueToTop(index: Int) = playerController.moveToTop(index)
+    fun removeFromQueue(index: Int) = playerController.removeFromQueue(index)
 
     fun withPlayer(action: (androidx.media3.common.Player) -> Unit) = playerController.withPlayer(action)
 
@@ -304,16 +322,58 @@ class PlayerViewModel @Inject constructor(
     }
     
     // ========== K 歌模式相关 ==========
-    
+
+    private var karaokeOrderServer: ConfigWebServer? = null
+
     fun enterKaraokeMode() {
         _uiState.update { it.copy(karaokeModeEnabled = true) }
-        // 开启人声消除（K 歌默认需要伴奏）
+        // 优先双音轨切换，否则开启人声消除（K 歌默认需要伴奏）
         playerController.toggleAccompanimentMode()
+        startKaraokeOrderServer()
     }
-    
+
     fun exitKaraokeMode() {
         _uiState.update { it.copy(karaokeModeEnabled = false) }
+        // 退出时停止扫码点歌服务并恢复原唱状态展示
+        stopKaraokeOrderServer()
         // 退出时恢复原唱（可选：保留当前伴唱状态）
         // playerController.toggleAccompanimentMode()
+    }
+
+    // ===== 扫码点歌（局域网 Web 服务）=====
+    // 借用 ConfigWebServer 已有的"点歌"页签：手机扫码后可在「点歌」页搜索/加入/置顶/删除歌曲。
+    private fun startKaraokeOrderServer() {
+        if (karaokeOrderServer != null) return
+        val ip = ConfigWebServer.localIpAddress() ?: return
+        for (port in KARAOKE_ORDER_PORTS) {
+            val server = ConfigWebServer(
+                port,
+                onOrderSearch = { keyword ->
+                    runBlocking {
+                        songRepository.getSongs(keyword = keyword, limit = 50)
+                            .getOrNull()?.songs.orEmpty()
+                    }
+                },
+                onOrderAdd = { addToQueue(it) },
+                onOrderTop = { moveQueueToTop(it) },
+                onOrderRemove = { removeFromQueue(it) },
+                onOrderQueue = { playerController.getQueue() }
+            )
+            if (runCatching { server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) }.isSuccess) {
+                karaokeOrderServer = server
+                _uiState.update { it.copy(karaokeOrderUrl = "http://$ip:$port/#order") }
+                return
+            }
+        }
+    }
+
+    private fun stopKaraokeOrderServer() {
+        karaokeOrderServer?.stop()
+        karaokeOrderServer = null
+        _uiState.update { it.copy(karaokeOrderUrl = null) }
+    }
+
+    companion object {
+        private val KARAOKE_ORDER_PORTS = intArrayOf(18911, 18912, 18913, 18914)
     }
 }

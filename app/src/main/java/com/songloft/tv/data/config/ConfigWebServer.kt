@@ -1,7 +1,9 @@
 package com.songloft.tv.data.config
 
 import android.util.Base64
+import com.google.gson.Gson
 import com.songloft.tv.BuildConfig
+import com.songloft.tv.data.model.Song
 import fi.iki.elonen.NanoHTTPD
 import java.io.File
 import java.io.FileInputStream
@@ -28,8 +30,16 @@ class ConfigWebServer(
     private val logsDir: File? = null,
     private val deviceName: String = "",
     @Volatile var pin: String = "",
-    private val onPushToken: ((server: String, token: String) -> Unit)? = null
+    private val onPushToken: ((server: String, token: String) -> Unit)? = null,
+    // 扫码点歌：歌曲搜索（同步返回结果）、加入队列、置顶、删除、读取队列
+    private val onOrderSearch: ((keyword: String) -> List<Song>)? = null,
+    private val onOrderAdd: ((song: Song) -> Unit)? = null,
+    private val onOrderTop: ((index: Int) -> Unit)? = null,
+    private val onOrderRemove: ((index: Int) -> Unit)? = null,
+    private val onOrderQueue: (() -> List<Song>)? = null
 ) : NanoHTTPD(port) {
+
+    private val gson = Gson()
 
     @Volatile
     private var beaconRunning = false
@@ -110,7 +120,61 @@ class ConfigWebServer(
         if (session.method == Method.GET && session.uri == "/probe") {
             return json(Response.Status.OK, beaconJson())
         }
+        // ===== 扫码点歌接口 =====
+        if (session.method == Method.GET && session.uri == "/order/queue") {
+            val queue = onOrderQueue?.invoke().orEmpty()
+            val json = queue.mapIndexed { index, song ->
+                """{"index":$index,"title":${esc(song.title)},"artist":${esc(song.artist)},"id":${song.id}}"""
+            }.joinToString(",", "[", "]")
+            return json(Response.Status.OK, json)
+        }
+        if (session.method == Method.POST && session.uri == "/order/search") {
+            session.parseBody(HashMap())
+            val onOrderSearch = onOrderSearch
+                ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式，无法搜索。")
+            val keyword = session.parameters["keyword"]?.firstOrNull()?.trim().orEmpty()
+            if (keyword.isBlank()) return text(Response.Status.BAD_REQUEST, "请输入搜索关键字。")
+            val results = runCatching { onOrderSearch(keyword) }.getOrDefault(emptyList())
+            return json(Response.Status.OK, gson.toJson(results))
+        }
+        if (session.method == Method.POST && session.uri == "/order/add") {
+            session.parseBody(HashMap())
+            val onOrderAdd = onOrderAdd
+                ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式，无法点歌。")
+            val songJson = session.parameters["song"]?.firstOrNull().orEmpty()
+            val song = runCatching { gson.fromJson(songJson, Song::class.java) }.getOrNull()
+                ?: return text(Response.Status.BAD_REQUEST, "歌曲数据无效。")
+            onOrderAdd(song)
+            return text(Response.Status.OK, "已点歌：${song.title}")
+        }
+        if (session.method == Method.POST && session.uri == "/order/top") {
+            session.parseBody(HashMap())
+            val onOrderTop = onOrderTop
+                ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式。")
+            val index = session.parameters["index"]?.firstOrNull()?.toIntOrNull() ?: -1
+            if (index < 0) return text(Response.Status.BAD_REQUEST, "无效序号。")
+            onOrderTop(index)
+            return text(Response.Status.OK, "已置顶。")
+        }
+        if (session.method == Method.POST && session.uri == "/order/remove") {
+            session.parseBody(HashMap())
+            val onOrderRemove = onOrderRemove
+                ?: return text(Response.Status.BAD_REQUEST, "电视端当前不在 K 歌模式。")
+            val index = session.parameters["index"]?.firstOrNull()?.toIntOrNull() ?: -1
+            if (index < 0) return text(Response.Status.BAD_REQUEST, "无效序号。")
+            onOrderRemove(index)
+            return text(Response.Status.OK, "已删除。")
+        }
         return html(Response.Status.OK, PAGE)
+    }
+
+    private fun esc(value: String?): String {
+        val s = value.orEmpty()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        return "\"$s\""
     }
 
     private fun html(status: Response.Status, content: String): Response =
@@ -241,14 +305,25 @@ class ConfigWebServer(
             #logList a{display:block;padding:12px;margin-bottom:8px;font-size:14px;
             border:1px solid #374151;border-radius:8px;background:#1f2937;color:#8fb0e8;
             text-decoration:none;word-break:break-all}
-            #logList a span{color:#6b7280;font-size:12px;margin-left:8px}
-            .feedback{display:block;margin-top:32px;text-align:center;font-size:13px;color:#6b7280}
-            .feedback a{color:#8fb0e8;text-decoration:none}
-            </style></head><body>
+             #logList a span{color:#6b7280;font-size:12px;margin-left:8px}
+             .feedback{display:block;margin-top:32px;text-align:center;font-size:13px;color:#6b7280}
+             .feedback a{color:#8fb0e8;text-decoration:none}
+             .order-sep{margin:20px 0 8px;padding-top:12px;border-top:1px solid #374151;
+             font-size:14px;color:#8fb0e8;text-align:center}
+             #orderResults a,#orderQueue a{display:flex;align-items:center;justify-content:space-between;
+             padding:12px;margin-bottom:8px;font-size:14px;border:1px solid #374151;border-radius:8px;
+             background:#1f2937;color:#eee;text-decoration:none}
+             #orderResults a span,#orderQueue a span{color:#6b7280;font-size:12px;margin-left:8px;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+             .act{padding:6px 10px;margin-left:8px;font-size:13px;border:none;border-radius:6px;
+             background:#415F91;color:#fff;cursor:pointer}
+             .act.del{background:#7f1d1d}
+             </style></head><body>
             <h2>Songloft TV</h2>
             <div class="tabs">
               <button class="tab" id="tabConfig" onclick="showTab('config')">登录配置</button>
               <button class="tab" id="tabSearch" onclick="showTab('search')">搜索</button>
+              <button class="tab" id="tabOrder" onclick="showTab('order')">点歌</button>
               <button class="tab" id="tabLogs" onclick="showTab('logs')">日志</button>
             </div>
             <div class="panel" id="panelConfig">
@@ -279,17 +354,29 @@ class ConfigWebServer(
             <div class="panel" id="panelLogs">
               <div id="logList"><div class="hint">加载中…</div></div>
             </div>
+            <div class="panel" id="panelOrder">
+              <form id="orderSearchForm">
+                <label>搜索歌曲</label>
+                <input name="keyword" id="orderKeyword" type="text" placeholder="输入歌曲、歌手或专辑" required>
+                <button class="submit" type="submit">搜索</button>
+              </form>
+              <div id="orderSearchStatus" class="hint"></div>
+              <div id="orderResults"></div>
+              <div class="order-sep">当前播放队列</div>
+              <div id="orderQueue"><div class="hint">加载中…</div></div>
+            </div>
             <div class="feedback">遇到问题？
               <a href="https://github.com/boluofan/songloft-tv/issues" target="_blank" rel="noopener">问题反馈</a>
             </div>
             <script>
             function showTab(name){
-              ['Config','Search','Logs'].forEach(function(t){
+              ['Config','Search','Order','Logs'].forEach(function(t){
                 var k=t.toLowerCase();
                 document.getElementById('tab'+t).classList.toggle('active',name===k);
                 document.getElementById('panel'+t).classList.toggle('active',name===k);
               });
               if(name==='logs')loadLogs();
+              if(name==='order')loadOrder();
             }
             function togglePw(){
               var input=document.getElementById('pw');
@@ -325,7 +412,71 @@ class ConfigWebServer(
                 el.innerHTML='<div class="hint">加载失败，请刷新重试</div>';
               });
             }
-            showTab(location.hash==='#search'?'search':location.hash==='#logs'?'logs':'config');
+            showTab(location.hash==='#search'?'search':location.hash==='#order'?'order':location.hash==='#logs'?'logs':'config');
+            document.getElementById('orderSearchForm').addEventListener('submit',function(e){
+              e.preventDefault();
+              var status=document.getElementById('orderSearchStatus');
+              var keyword=document.getElementById('orderKeyword').value.trim();
+              if(!keyword){status.textContent='请输入搜索关键字';return;}
+              status.textContent='搜索中...';
+              fetch('/order/search',{method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'keyword='+encodeURIComponent(keyword)})
+                .then(function(r){return r.json().then(function(list){
+                  if(!Array.isArray(list)){status.textContent='搜索失败';return;}
+                  status.textContent='找到 '+list.length+' 首';
+                  renderOrderResults(list);
+                });})
+                .catch(function(){status.textContent='搜索失败，请确认电视端在 K 歌模式';
+                  status.style.color='#f87171';});
+            });
+            function renderOrderResults(list){
+              var el=document.getElementById('orderResults');
+              if(!list.length){el.innerHTML='<div class="hint">无结果</div>';return;}
+              el.innerHTML=list.map(function(s){
+                var json=JSON.stringify(s).replace(/"/g,'&quot;');
+                return '<a href="javascript:void(0)"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                  '</span><button class="act" onclick="orderAdd(\''+encodeURIComponent(json)+'\')">点歌</button></a>';
+              }).join('');
+            }
+            function escHtml(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+            window.orderAdd=function(enc){
+              var song=decodeURIComponent(enc);
+              fetch('/order/add',{method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'song='+encodeURIComponent(song)})
+                .then(function(r){return r.text().then(function(t){
+                  loadOrder();
+                });});
+            };
+            function loadOrder(){
+              fetch('/order/queue').then(function(r){return r.json();}).then(function(list){
+                var el=document.getElementById('orderQueue');
+                if(!list.length){el.innerHTML='<div class="hint">队列为空</div>';return;}
+                el.innerHTML=list.map(function(s){
+                  return '<a href="javascript:void(0)"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                    '</span><span>'+
+                    '<button class="act" onclick="orderTop('+s.index+')">置顶</button>'+
+                    '<button class="act del" onclick="orderRemove('+s.index+')">删除</button>'+
+                    '</span></a>';
+                }).join('');
+              }).catch(function(){
+                document.getElementById('orderQueue').innerHTML='<div class="hint">加载失败</div>';
+              });
+            }
+            window.orderTop=function(index){
+              fetch('/order/top',{method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'index='+index}).then(function(){loadOrder();});
+            };
+            window.orderRemove=function(index){
+              fetch('/order/remove',{method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'index='+index}).then(function(){loadOrder();});
+            };
+            setInterval(function(){
+              if(document.getElementById('panelOrder').classList.contains('active'))loadOrder();
+            },5000);
             document.getElementById('searchForm').addEventListener('submit',function(e){
               e.preventDefault();
               var status=document.getElementById('searchStatus');

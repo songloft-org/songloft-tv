@@ -1,4 +1,4 @@
-package com.songloft.tv.ui.components
+package com.songloft.tv.ui.karaoke
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,18 +63,18 @@ fun KaraokeLyricsView(
 
     // 平滑进度：本地时钟插值（50ms 刷新）
     var lyricTickMs by remember(lyrics) { mutableLongStateOf(progressMs) }
-    
+
     LaunchedEffect(progressMs, isPlaying, lyrics) {
         if (isPlaying) {
             var anchorProgress = progressMs
             var anchorSystemMs = System.currentTimeMillis()
             lyricTickMs = anchorProgress
-            
+
             while (isPlaying) {
                 delay(50)
                 val elapsed = System.currentTimeMillis() - anchorSystemMs
                 lyricTickMs = anchorProgress + elapsed
-                
+
                 if (progressMs != anchorProgress) {
                     anchorProgress = progressMs
                     anchorSystemMs = System.currentTimeMillis()
@@ -95,10 +95,10 @@ fun KaraokeLyricsView(
     val onTopIsCurrent = currentIndex % 2 == 0
     val topLineIndex = if (onTopIsCurrent) currentIndex else currentIndex + 1
     val bottomLineIndex = if (onTopIsCurrent) currentIndex + 1 else currentIndex
-    
+
     val topLine = lyrics.getOrNull(topLineIndex)
     val bottomLine = lyrics.getOrNull(bottomLineIndex)
-    
+
     // 当前行结束时间
     val currentLineEndMs = lyrics.getOrNull(currentIndex + 1)?.time
         ?: (lyrics[currentIndex].time + 3000L)
@@ -114,7 +114,7 @@ fun KaraokeLyricsView(
             val progress = if (onTopIsCurrent) {
                 lineProgress(line.time, currentLineEndMs, lyricTickMs)
             } else 0f
-            
+
             KaraokeLineText(
                 text = line.text,
                 progress = progress,
@@ -131,7 +131,7 @@ fun KaraokeLyricsView(
             val progress = if (!onTopIsCurrent) {
                 lineProgress(line.time, currentLineEndMs, lyricTickMs)
             } else 0f
-            
+
             KaraokeLineText(
                 text = line.text,
                 progress = progress,
