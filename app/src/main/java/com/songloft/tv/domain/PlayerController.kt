@@ -1016,13 +1016,15 @@ class PlayerController @Inject constructor(
         val song = list[index]
         val newList = list.toMutableList().apply {
             removeAt(index)
+            // 始终落到当前曲正后方（cur+1），即"下一个演唱"的位置
             add((cur + 1).coerceIn(0, size), song)
         }
-        _state.update { it.copy(karaokeList = newList) }
+        // 当前曲位置不变，仍指向 cur
+        _state.update { it.copy(karaokeList = newList, currentIndex = cur) }
         withController { c ->
-            val target = (c.currentMediaItemIndex + 1).coerceIn(0, c.mediaItemCount)
+            // 引擎与数据使用同一目标位（cur+1），避免依赖可能滞后的 currentMediaItemIndex
+            val target = (cur + 1).coerceIn(0, c.mediaItemCount)
             runCatching { c.moveMediaItem(index, target) }
-            _state.update { it.copy(currentIndex = c.currentMediaItemIndex) }
         }
     }
 

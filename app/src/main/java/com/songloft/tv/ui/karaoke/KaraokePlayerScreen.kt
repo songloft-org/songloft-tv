@@ -63,6 +63,7 @@ fun KaraokePlayerScreen(
     onToggleAccompaniment: () -> Unit,
     onToggleQueue: () -> Unit,
     playPauseFocusRequester: FocusRequester? = null,
+    queueButtonFocusRequester: FocusRequester? = null,
     backButtonFocusRequester: FocusRequester? = null,
     onShowControls: () -> Unit = {}
 ) {
@@ -169,6 +170,7 @@ fun KaraokePlayerScreen(
                     onToggleAccompaniment = onToggleAccompaniment,
                     onToggleQueue = onToggleQueue,
                     playPauseFocusRequester = playPauseFocusRequester,
+                    queueButtonFocusRequester = queueButtonFocusRequester,
                     backButtonFocusRequester = backFocusRequester
                 )
             }

@@ -70,6 +70,7 @@ fun KaraokeControlBar(
     onToggleQueue: () -> Unit,
     backButtonFocusRequester: FocusRequester? = null,
     playPauseFocusRequester: FocusRequester? = null,
+    queueButtonFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -155,7 +156,7 @@ fun KaraokeControlBar(
                 contentDescription = if (accompanimentOn) "当前伴唱，点击切原唱" else "当前原唱，点击切伴唱",
                 onClick = onToggleAccompaniment
             )
-            TransportButton(Icons.AutoMirrored.Rounded.QueueMusic, "播放队列", onToggleQueue)
+            TransportButton(Icons.AutoMirrored.Rounded.QueueMusic, "播放队列", onToggleQueue, focusRequester = queueButtonFocusRequester)
         }
     }
 }

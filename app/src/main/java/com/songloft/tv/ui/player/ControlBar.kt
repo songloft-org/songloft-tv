@@ -78,6 +78,7 @@ fun ControlBar(
     isLyricRefreshing: Boolean = false,
     playPauseFocusRequester: FocusRequester? = null,
     micButtonFocusRequester: FocusRequester? = null,
+    queueButtonFocusRequester: FocusRequester? = null,
     soundButtonFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
@@ -182,7 +183,7 @@ fun ControlBar(
                     focusRequester = soundButtonFocusRequester
                 )
             }
-            TransportButton(Icons.AutoMirrored.Rounded.QueueMusic, "播放队列", onToggleQueue)
+            TransportButton(Icons.AutoMirrored.Rounded.QueueMusic, "播放队列", onToggleQueue, focusRequester = queueButtonFocusRequester)
         }
     }
 }

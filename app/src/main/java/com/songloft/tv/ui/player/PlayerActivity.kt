@@ -112,6 +112,7 @@ fun PlayerScreen(
     val queueDrawerFocus = remember { FocusRequester() }
     val soundPanelFocus = remember { FocusRequester() }
     val soundButtonFocus = remember { FocusRequester() }
+    val queueButtonFocus = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
     
     BackHandler {
@@ -150,6 +151,17 @@ fun PlayerScreen(
                 uiState.showControls -> controlBarFocus.requestFocus()
             }
         }
+    }
+
+    // 队列抽屉关闭后，焦点回到控制栏的"播放队列"按钮（按钮不可见时兜底到播放/暂停）
+    var queueDrawerWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.showQueueDrawer) {
+        if (queueDrawerWasOpen && !uiState.showQueueDrawer) {
+            delay(120)
+            runCatching { queueButtonFocus.requestFocus() }
+                .onFailure { runCatching { playPauseFocusRequester.requestFocus() } }
+        }
+        queueDrawerWasOpen = uiState.showQueueDrawer
     }
 
     // 音效面板关闭后，焦点回到控制栏的音效按钮（按钮不可见时兜底到播放/暂停）
@@ -290,9 +302,10 @@ fun PlayerScreen(
                     onToggleFavorite = { viewModel.toggleFavorite() },
                     onReSing = { viewModel.reSing() },
                     onToggleAccompaniment = { viewModel.toggleAccompaniment() },
-                    onToggleQueue = { viewModel.toggleQueueDrawer() },
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    backButtonFocusRequester = micButtonFocus,
+                onToggleQueue = { viewModel.toggleQueueDrawer() },
+                playPauseFocusRequester = playPauseFocusRequester,
+                queueButtonFocusRequester = queueButtonFocus,
+                backButtonFocusRequester = micButtonFocus,
                     onShowControls = { viewModel.showControls() }
                 )
             }
@@ -436,6 +449,7 @@ fun PlayerScreen(
                     onEnterKaraokeMode = { viewModel.enterKaraokeMode() },
                     micButtonFocusRequester = micButtonFocus,
                     playPauseFocusRequester = controlBarFocus,
+                    queueButtonFocusRequester = queueButtonFocus,
                     soundButtonFocusRequester = soundButtonFocus,
                     modifier = Modifier.fillMaxWidth()
                 )
