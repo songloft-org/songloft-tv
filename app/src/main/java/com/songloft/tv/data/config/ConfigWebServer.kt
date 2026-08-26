@@ -470,6 +470,7 @@ class ConfigWebServer(
                 body:'index='+index}).then(function(){loadOrder();});
             };
             window.orderRemove=function(index){
+              if(!confirm('确定要从 K 歌歌单中删除这首歌吗？'))return;
               fetch('/order/remove',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
                 body:'index='+index}).then(function(){loadOrder();});

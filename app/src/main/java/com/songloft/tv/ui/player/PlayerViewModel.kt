@@ -4,26 +4,25 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.songloft.tv.data.config.ConfigWebServer
+import com.songloft.tv.data.model.LyricLine
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.data.model.Track
-import com.songloft.tv.data.model.LyricLine
 import com.songloft.tv.data.repository.FavoriteRepository
-import fi.iki.elonen.NanoHTTPD
 import com.songloft.tv.data.repository.SongRepository
 import com.songloft.tv.data.storage.PreferencesDataStore
 import com.songloft.tv.domain.LyricParser
 import com.songloft.tv.domain.PlayMode
 import com.songloft.tv.domain.PlayerController
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 data class PlayerUiState(
@@ -71,6 +70,8 @@ data class PlayerUiState(
     val karaokeModeEnabled: Boolean = false,
     // K 歌"扫码点歌"服务器地址（null 表示未开启）
     val karaokeOrderUrl: String? = null,
+    // K 歌独立播放列表（与主页队列隔离）；非 K 歌模式时为空
+    val karaokeList: List<Song> = emptyList(),
     // 当前是否处于"伴唱"：双音轨资源看所选音轨，否则看人声消除开关
     val isAccompanimentOn: Boolean = false
 )
@@ -126,6 +127,7 @@ class PlayerViewModel @Inject constructor(
                         playMode = s.playMode,
                         queue = s.queue,
                         currentIndex = s.currentIndex,
+                        karaokeList = s.karaokeList,
                         isVideoMode = s.currentSong?.isVideo == true,
                         eqSupported = s.eqSupported,
                         eqEnabled = s.eqEnabled,
@@ -200,6 +202,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun nextTrack() = playerController.next()
+
+    /** 重唱：当前曲目从头开始（K 歌模式使用） */
+    fun reSing() = playerController.seekTo(0)
 
     fun previousTrack() = playerController.previous()
 
@@ -328,6 +333,8 @@ class PlayerViewModel @Inject constructor(
     fun enterKaraokeMode() {
         _uiState.update { it.copy(karaokeModeEnabled = true) }
         // 进入 K 歌默认原唱：不切换音轨/不消人声，保持主播放器原样
+        // 建立独立的 K 歌播放列表（备份并隔离主页队列）
+        playerController.enterKaraoke()
         startKaraokeOrderServer()
     }
 
@@ -335,9 +342,17 @@ class PlayerViewModel @Inject constructor(
         _uiState.update { it.copy(karaokeModeEnabled = false) }
         // 退出时停止扫码点歌服务
         stopKaraokeOrderServer()
+        // 退出 K 歌：还原主页播放队列
+        playerController.exitKaraoke()
         // 退出前强制切回原唱，保证主播放器始终为原唱
         playerController.restoreOriginal()
     }
+
+    // ===== K 歌独立列表管理（与扫码点歌共用同一份列表）=====
+    fun karaokeAdd(song: com.songloft.tv.data.model.Song) = playerController.karaokeAdd(song)
+    fun karaokeMoveTop(index: Int) = playerController.karaokeMoveTop(index)
+    fun karaokeRemove(index: Int) = playerController.karaokeRemove(index)
+    fun karaokePlayAt(index: Int) = playerController.karaokePlayAt(index)
 
     // ===== 扫码点歌（局域网 Web 服务）=====
     // 借用 ConfigWebServer 已有的"点歌"页签：手机扫码后可在「点歌」页搜索/加入/置顶/删除歌曲。
@@ -353,10 +368,10 @@ class PlayerViewModel @Inject constructor(
                             .getOrNull()?.songs.orEmpty()
                     }
                 },
-                onOrderAdd = { addToQueue(it) },
-                onOrderTop = { moveQueueToTop(it) },
-                onOrderRemove = { removeFromQueue(it) },
-                onOrderQueue = { playerController.getQueue() }
+                onOrderAdd = { karaokeAdd(it) },
+                onOrderTop = { karaokeMoveTop(it) },
+                onOrderRemove = { karaokeRemove(it) },
+                onOrderQueue = { playerController.getKaraokeList() }
             )
             if (runCatching { server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) }.isSuccess) {
                 karaokeOrderServer = server

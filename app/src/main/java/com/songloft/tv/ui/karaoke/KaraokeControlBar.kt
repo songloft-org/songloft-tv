@@ -21,9 +21,8 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -62,12 +61,11 @@ fun KaraokeControlBar(
     accompanimentOn: Boolean,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
-    onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
     onSeekBy: (Long) -> Unit,
     onCyclePlayMode: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onRefreshLyrics: () -> Unit,
+    onReSing: () -> Unit,
     onToggleAccompaniment: () -> Unit,
     onToggleQueue: () -> Unit,
     backButtonFocusRequester: FocusRequester? = null,
@@ -107,6 +105,7 @@ fun KaraokeControlBar(
                         .coerceIn(0L, uiState.duration.coerceAtLeast(0L))
                     onSeek(target)
                 },
+                interactive = false,
                 modifier = Modifier
                     .weight(1f)
                     .onPreviewKeyEvent { event ->
@@ -132,7 +131,6 @@ fun KaraokeControlBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TransportButton(Icons.Rounded.SkipPrevious, "上一曲", onPrevious)
             val playIcon = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow
             TransportButton(
                 playIcon,
@@ -141,21 +139,15 @@ fun KaraokeControlBar(
                 isLarge = true,
                 focusRequester = playPauseFocusRequester
             )
-            TransportButton(Icons.Rounded.SkipNext, "下一曲", onNext)
+            // 切歌：等价于下一首（K 歌不使用上一曲/下一曲）
+            TransportButton(Icons.Rounded.SkipNext, "切歌", onNext)
             TransportButton(
                 if (uiState.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 "收藏",
                 onToggleFavorite
             )
-            // 电台是持续流媒体，无歌词概念，隐藏重新获取歌词键
-            if (uiState.currentSong?.type != "radio") {
-                TransportButton(
-                    Icons.Rounded.Refresh,
-                    "重新获取歌词",
-                    onRefreshLyrics,
-                    loading = uiState.isLyricRefreshing
-                )
-            }
+            // 重唱：当前曲目从头开始（K 歌专有用，替代"重新获取歌词"）
+            TransportButton(Icons.Rounded.Replay, "重唱", onReSing)
             // === 原唱 / 伴唱切换（优先双音轨，回退人声消除）===
             // 用「原 / 伴」字符作图标，直观显示当前模式，点击切换
             KaraokeTextButton(

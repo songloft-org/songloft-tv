@@ -66,6 +66,7 @@ import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.karaoke.KaraokePlayerScreen
+import com.songloft.tv.ui.karaoke.KaraokeQueueList
 import com.songloft.tv.ui.theme.PlayerColors
 import com.songloft.tv.ui.theme.TvTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -281,12 +282,11 @@ fun PlayerScreen(
                     onBack = { viewModel.exitKaraokeMode() },
                     onPlayPause = { viewModel.togglePlay() },
                     onNext = { viewModel.nextTrack() },
-                    onPrevious = { viewModel.previousTrack() },
                     onSeek = { viewModel.seekTo(it) },
                     onSeekBy = { viewModel.seekBy(it) },
                     onCyclePlayMode = { viewModel.cyclePlayMode() },
                     onToggleFavorite = { viewModel.toggleFavorite() },
-                    onRefreshLyrics = { viewModel.refreshLyrics() },
+                    onReSing = { viewModel.reSing() },
                     onToggleAccompaniment = { viewModel.toggleAccompaniment() },
                     onToggleQueue = { viewModel.toggleQueueDrawer() },
                     playPauseFocusRequester = playPauseFocusRequester,
@@ -473,14 +473,27 @@ fun PlayerScreen(
             exit = slideOutHorizontally { -it },
             modifier = Modifier.align(Alignment.CenterStart)
         ) {
-            QueueDrawer(
-                queue = uiState.queue,
-                currentIndex = uiState.currentIndex,
-                onClose = { viewModel.toggleQueueDrawer() },
-                onSongClick = { viewModel.playAt(it) },
-                initialFocusRequester = queueDrawerFocus,
-                modifier = Modifier.fillMaxHeight().width(400.dp)
-            )
+            if (uiState.karaokeModeEnabled) {
+                KaraokeQueueList(
+                    queue = uiState.karaokeList,
+                    currentIndex = uiState.currentIndex,
+                    onClose = { viewModel.toggleQueueDrawer() },
+                    onSongClick = { viewModel.karaokePlayAt(it) },
+                    onMoveTop = { viewModel.karaokeMoveTop(it) },
+                    onRemove = { viewModel.karaokeRemove(it) },
+                    initialFocusRequester = queueDrawerFocus,
+                    modifier = Modifier.fillMaxHeight().width(400.dp)
+                )
+            } else {
+                QueueDrawer(
+                    queue = uiState.queue,
+                    currentIndex = uiState.currentIndex,
+                    onClose = { viewModel.toggleQueueDrawer() },
+                    onSongClick = { viewModel.playAt(it) },
+                    initialFocusRequester = queueDrawerFocus,
+                    modifier = Modifier.fillMaxHeight().width(400.dp)
+                )
+            }
         }
 
         // 合并音效面板从右侧滑入（音效模式 + 均衡器），与左侧播放队列抽屉对称
