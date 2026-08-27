@@ -6,25 +6,22 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.songloft.tv.data.model.LyricLine
@@ -78,7 +75,6 @@ fun LyricsPanel(
                 val alpha = if (isActive) 1f else (0.85f - 0.08f * distance).coerceIn(0.45f, 0.85f)
 
                 if (isActive && line.hasWords) {
-                    // 逐字高亮播放行（参考 NASMusicTV 双层裁剪方案）
                     SmoothWordHighlightLine(
                         line = line,
                         progressMs = currentPosition,
@@ -86,14 +82,13 @@ fun LyricsPanel(
                         fontSize = fontSize
                     )
                 } else {
-                    // 普通行或预览行（带阴影）
                     Text(
                         text = line.text.ifEmpty { "···" },
                         fontSize = if (isActive) activeSize else inactiveSize,
                         lineHeight = if (isActive) activeLineHeight else inactiveLineHeight,
                         fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
                         color = if (isActive) highlightColor else PlayerColors.TextPrimary.copy(alpha = alpha),
-                        style = androidx.compose.ui.text.TextStyle(shadow = PlayerColors.LyricShadow),
+                        style = TextStyle(shadow = PlayerColors.LyricShadow),
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -118,13 +113,19 @@ fun LyricsPanel(
 }
 
 /**
- * 平滑逐字高亮显示（参考 NASMusicTV 的双层裁剪方案）
- * 
- * 核心原理：
- * 1. 底层：灰色整行文本（未播放状态）
- * 2. 顶层：同文本按进度裁剪揭示的高亮副本
- * 3. 使用 TextLayoutResult 获取每个字符的像素位置
- * 4. 边界精确到浮点坐标，可落在半个字中间实现连续扫动
+ * 逐字高亮播放行
+ *
+ * 严格职责分离：
+ * - 换行（字符 ↔ 像素 X/Y 映射）：由 Text composable 自己处理，本函数完全不感知。
+ *   Text 用 fillMaxWidth + textAlign=Center 自然按可用宽度折行，与未播放行同款。
+ * - 逐字高亮（按 word 染色）：本函数根据 words 时间戳把每个 word 内的 char 标记为
+ *   "已唱/未唱"，生成 AnnotatedString，每个 span 独立着色。Text 拿到 AnnotatedString
+ *   后按统一 layout 排版，位置天然对齐，跨折行也自动正确。
+ *
+ * 不再使用 clipRect / drawWithContent / Canvas——这些字内像素级过度方案在折行点上
+ * 反复出现"靠右/闪回"问题，本方案彻底回归"逐字按 char 切色"，与换行逻辑完全解耦。
+ * 末字"提前亮"：lit > 0 时把整 word 标为高亮色，避免 (word.length * lit).toInt() 截
+ * 断导致末字始终 dim。
  */
 @Composable
 private fun SmoothWordHighlightLine(
@@ -134,117 +135,63 @@ private fun SmoothWordHighlightLine(
     fontSize: Int = 30
 ) {
     val words = line.words ?: return
-    
-    var layout by remember(line.text) { mutableStateOf<TextLayoutResult?>(null) }
-    
-    // 使用 Box 实现双层叠加，两个 Text 必须完全相同以确保坐标对齐
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
-    ) {
-        // 底层：灰色预览
-        Text(
-            text = line.text,
-            fontSize = fontSize.sp,
-            lineHeight = (fontSize * 42 / 30).sp,
-            fontWeight = FontWeight.Bold,
-            color = PlayerColors.LyricsInactive,
-            textAlign = TextAlign.Center,
-            onTextLayout = { layout = it },
-            modifier = Modifier.wrapContentWidth()
+    if (words.isEmpty()) return
+
+    val style = TextStyle(
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize * 42 / 30).sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        shadow = PlayerColors.LyricShadow
+    )
+
+    val annotated = remember(line.text, progressMs) {
+        buildWordHighlightAnnotatedString(
+            words = words,
+            progressMs = progressMs,
+            highlightColor = highlightColor,
+            inactiveColor = PlayerColors.LyricsInactive
         )
-
-        // 顶层：高亮裁剪（使用与底层完全相同的配置）
-        val lr = layout
-        if (lr != null && words.isNotEmpty()) {
-            Text(
-                text = line.text,
-                fontSize = fontSize.sp,
-                lineHeight = (fontSize * 42 / 30).sp,
-                fontWeight = FontWeight.Bold,
-                color = highlightColor,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .wrapContentWidth()
-                    .drawWithContent {
-                        var remainingChars = calculateCoveredChars(progressMs, words)
-                        
-                        // 逐行裁剪多行文本
-                        for (lineIdx in 0 until lr.lineCount) {
-                            val lineStart = lr.getLineStart(lineIdx)
-                            val lineEnd = lr.getLineEnd(lineIdx)
-                            val lineLen = lineEnd - lineStart
-                            if (lineLen <= 0) continue
-                            if (remainingChars <= 0f) break
-
-                            val take = minOf(remainingChars, lineLen.toFloat())
-                            val boundaryX = if (take >= lineLen) {
-                                // 本行已整体覆盖，边界取最右侧
-                                lr.getLineRight(lineIdx)
-                            } else {
-                                // 部分覆盖：在两个字符间插值计算边界 X
-                                val base = take.toInt()
-                                val frac = take - base
-                                val boundaryOffset = lineStart + base
-                                val x1 = lr.getHorizontalPosition(boundaryOffset, usePrimaryDirection = true)
-                                val x2 = lr.getHorizontalPosition(boundaryOffset + 1, usePrimaryDirection = true)
-                                x1 + (x2 - x1) * frac
-                            }
-
-                            clipRect(
-                                left = 0f,
-                                top = lr.getLineTop(lineIdx),
-                                right = boundaryX,
-                                bottom = lr.getLineBottom(lineIdx)
-                            ) {
-                                this@drawWithContent.drawContent()
-                            }
-                            remainingChars -= take
-                        }
-                    }
-            )
-        }
     }
+
+    Text(
+        text = annotated,
+        style = style,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp, horizontal = 16.dp)
+    )
 }
 
 /**
- * 计算当前应高亮的字符数（含小数 → 半个字）
- * 
- * 利用字级时间戳统计：
- * - 已完成唱的字：end <= progressMs → 全部点亮
- * - 正在唱的字：start < progressMs < end → 按进度百分比点亮
- * - 未开始的字：progressMs <= start → 不点亮
+ * 逐字高亮：把每个 word 内的 char 按时间戳切分为"已唱 / 未唱"两段，用 AnnotatedString
+ * 不同 SpanStyle 着色。约定 line.text = words[].text 顺序拼接（LyricParser 保证）。
  */
-private fun calculateCoveredChars(
+private fun buildWordHighlightAnnotatedString(
+    words: List<LyricWord>,
     progressMs: Long,
-    words: List<LyricWord>
-): Float {
-    var totalChars = 0f
-    var lastCompletedWordIdx = -1
-    
-    // 找到最后一个完整唱完的字（end <= progressMs）
-    for (i in words.indices) {
-        if (progressMs >= words[i].end) {
-            lastCompletedWordIdx = i
-        } else {
-            break
+    highlightColor: Color,
+    inactiveColor: Color
+): androidx.compose.ui.text.AnnotatedString {
+    val spanLit = SpanStyle(color = highlightColor)
+    val spanDim = SpanStyle(color = inactiveColor)
+
+    return buildAnnotatedString {
+        for (word in words) {
+            val lit = when {
+                progressMs >= word.end -> 1f
+                progressMs <= word.start -> 0f
+                word.end > word.start ->
+                    ((progressMs - word.start).toFloat() / (word.end - word.start)).coerceIn(0f, 1f)
+                else -> 0f
+            }
+            // 末字"提前亮"：lit > 0 时整 word 都高亮，否则整 word dim。
+            // 这是 AnnotatedString 的极限——按 word 整字切色，不能做到字内像素级。
+            if (lit > 0f) {
+                withStyle(spanLit) { append(word.text) }
+            } else {
+                withStyle(spanDim) { append(word.text) }
+            }
         }
     }
-    
-    // 累加所有已完成字的字符数
-    for (i in 0..lastCompletedWordIdx) {
-        totalChars += words[i].text.length
-    }
-    
-    // 处理正在唱的字（索引是 lastCompletedWordIdx + 1）
-    if (lastCompletedWordIdx >= 0 && lastCompletedWordIdx < words.size - 1) {
-        val currentWord = words[lastCompletedWordIdx + 1]
-        if (currentWord.start < progressMs && progressMs < currentWord.end && currentWord.end > currentWord.start) {
-            // 当前字进度比例 (0~1)
-            val wordProgress = ((progressMs - currentWord.start).toFloat() / (currentWord.end - currentWord.start).toFloat()).coerceIn(0f, 1f)
-            totalChars += wordProgress * currentWord.text.length
-        }
-    }
-    
-    return totalChars
 }
