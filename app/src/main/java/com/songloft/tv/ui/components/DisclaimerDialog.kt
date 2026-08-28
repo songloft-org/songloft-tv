@@ -41,6 +41,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
+private const val DISCLAIMER_ITEM_COUNT = 3
+
 /**
  * 首次启动的版权说明/免责声明弹窗。
  * 「操作说明」按钮跳转 HelpDialog；任意方式关闭（含返回键）即视为已展示，
@@ -89,7 +91,9 @@ fun DisclaimerDialog(
                             when (event.nativeKeyEvent.keyCode) {
                                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                                     if (listState.canScrollForward) {
-                                        scope.launch { listState.animateScrollToItem(listState.firstVisibleItemIndex + 1) }
+                                        scope.launch {
+                                            listState.animateScrollToItem((listState.firstVisibleItemIndex + 1).coerceAtMost(DISCLAIMER_ITEM_COUNT - 1))
+                                        }
                                         true
                                     } else {
                                         closeFocus.requestFocus()
@@ -98,7 +102,9 @@ fun DisclaimerDialog(
                                 }
                                 KeyEvent.KEYCODE_DPAD_UP -> {
                                     if (listState.canScrollBackward) {
-                                        scope.launch { listState.animateScrollToItem(listState.firstVisibleItemIndex - 1) }
+                                        scope.launch {
+                                            listState.animateScrollToItem((listState.firstVisibleItemIndex - 1).coerceAtLeast(0))
+                                        }
                                         true
                                     } else false
                                 }
