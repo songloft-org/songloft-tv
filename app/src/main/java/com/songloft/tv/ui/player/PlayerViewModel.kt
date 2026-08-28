@@ -73,7 +73,8 @@ data class PlayerUiState(
     // K 歌独立播放列表（与主页队列隔离）；非 K 歌模式时为空
     val karaokeList: List<Song> = emptyList(),
     // 当前是否处于"伴唱"：双音轨资源看所选音轨，否则看人声消除开关
-    val isAccompanimentOn: Boolean = false
+    val isAccompanimentOn: Boolean = false,
+    val showExitKaraokeConfirm: Boolean = false
 )
 
 @HiltViewModel
@@ -346,6 +347,18 @@ class PlayerViewModel @Inject constructor(
         playerController.exitKaraoke()
         // 退出前强制切回原唱，保证主播放器始终为原唱
         playerController.restoreOriginal()
+        // 从 K 歌回到主播放器时默认暂停，由用户主动继续播放
+        playerController.pause()
+        _uiState.update { it.copy(showExitKaraokeConfirm = false) }
+    }
+
+    fun requestExitKaraoke() {
+        if (!_uiState.value.karaokeModeEnabled) return
+        _uiState.update { it.copy(showExitKaraokeConfirm = true) }
+    }
+
+    fun dismissExitKaraokeConfirm() {
+        _uiState.update { it.copy(showExitKaraokeConfirm = false) }
     }
 
     // ===== K 歌独立列表管理（与扫码点歌共用同一份列表）=====

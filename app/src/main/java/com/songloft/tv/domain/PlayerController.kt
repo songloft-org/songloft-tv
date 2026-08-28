@@ -425,6 +425,8 @@ class PlayerController @Inject constructor(
         if (c.isPlaying) c.pause() else c.play()
     }
 
+    fun pause() = withController { it.pause() }
+
     fun next() = withController { it.seekToNextMediaItem() }
 
     fun previous() = withController { it.seekToPreviousMediaItem() }

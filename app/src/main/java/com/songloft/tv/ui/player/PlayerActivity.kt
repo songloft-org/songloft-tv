@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -67,6 +68,7 @@ import coil.compose.AsyncImage
 import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.ui.components.CoverImage
+import com.songloft.tv.ui.components.tvFocusable
 import com.songloft.tv.ui.karaoke.KaraokePlayerScreen
 import com.songloft.tv.ui.karaoke.KaraokeQueueList
 import com.songloft.tv.ui.theme.PlayerColors
@@ -117,10 +119,11 @@ fun PlayerScreen(
     
     BackHandler {
         when {
+            uiState.showExitKaraokeConfirm -> viewModel.dismissExitKaraokeConfirm()
             uiState.showQueueDrawer -> viewModel.closeQueueDrawer()
             uiState.showSoundPanel -> viewModel.closeSoundPanel()
             uiState.showControls -> viewModel.hideControls()
-            uiState.karaokeModeEnabled -> viewModel.exitKaraokeMode()
+            uiState.karaokeModeEnabled -> viewModel.requestExitKaraoke()
             else -> onBack()
         }
     }
@@ -293,7 +296,7 @@ fun PlayerScreen(
                     uiState = uiState,
                     orderUrl = uiState.karaokeOrderUrl,
                     accompanimentOn = uiState.isAccompanimentOn,
-                    onBack = { viewModel.exitKaraokeMode() },
+                    onBack = { viewModel.requestExitKaraoke() },
                     onPlayPause = { viewModel.togglePlay() },
                     onNext = { viewModel.nextTrack() },
                     onSeek = { viewModel.seekTo(it) },
@@ -565,5 +568,74 @@ fun PlayerScreen(
                 }
             }
         }
+
+        if (uiState.showExitKaraokeConfirm) {
+            ExitKaraokeConfirmDialog(
+                onConfirm = { viewModel.exitKaraokeMode() },
+                onDismiss = { viewModel.dismissExitKaraokeConfirm() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExitKaraokeConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val cancelFocus = remember { FocusRequester() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 40.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "确定退出 K 歌吗？",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(24.dp))
+            Row {
+                ExitKaraokeDialogButton(
+                    text = "取消",
+                    onClick = onDismiss,
+                    modifier = Modifier.focusRequester(cancelFocus)
+                )
+                Spacer(Modifier.width(16.dp))
+                ExitKaraokeDialogButton(
+                    text = "退出",
+                    onClick = onConfirm
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { runCatching { cancelFocus.requestFocus() } }
+}
+
+@Composable
+private fun ExitKaraokeDialogButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .tvFocusable(cornerRadius = 8.dp, onClick = onClick)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 28.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
