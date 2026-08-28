@@ -36,6 +36,7 @@ data class SettingsUiState(
     val serverUrl: String = "",
     val audioQuality: String = "",
     val backgroundPlayback: Boolean = true,
+    val autoResumeOnLaunch: Boolean = false,
     val useCustomKeyboard: Boolean = true,
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemaining: Int = 0,
@@ -95,6 +96,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.backgroundPlayback.collect { enabled ->
                 _uiState.value = _uiState.value.copy(backgroundPlayback = enabled)
+            }
+        }
+        viewModelScope.launch {
+            dataStore.autoResumeOnLaunch.collect { enabled ->
+                _uiState.value = _uiState.value.copy(autoResumeOnLaunch = enabled)
             }
         }
         viewModelScope.launch {
@@ -196,6 +202,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setBackgroundPlayback(enabled: Boolean) {
         viewModelScope.launch { dataStore.setBackgroundPlayback(enabled) }
+    }
+
+    fun setAutoResumeOnLaunch(enabled: Boolean) {
+        viewModelScope.launch { dataStore.setAutoResumeOnLaunch(enabled) }
     }
 
     fun setUseCustomKeyboard(enabled: Boolean) {

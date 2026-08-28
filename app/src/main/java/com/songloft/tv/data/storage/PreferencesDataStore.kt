@@ -27,6 +27,8 @@ class PreferencesDataStore @Inject constructor(
         private val ACCESS_TOKEN = stringPreferencesKey("access_token")
         private val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
         private val BACKGROUND_PLAYBACK = booleanPreferencesKey("background_playback")
+        // 开机自动续播：冷启动登录完成后恢复上次队列与进度并开始播放
+        private val AUTO_RESUME_ON_LAUNCH = booleanPreferencesKey("auto_resume_on_launch")
         private val USE_CUSTOM_KEYBOARD = booleanPreferencesKey("use_custom_keyboard")
         private val IGNORED_VERSION_CODE = intPreferencesKey("ignored_version_code")
         private val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
@@ -63,6 +65,7 @@ class PreferencesDataStore @Inject constructor(
     val accessToken: Flow<String?> = context.dataStore.data.map { it[ACCESS_TOKEN] }
     val refreshToken: Flow<String?> = context.dataStore.data.map { it[REFRESH_TOKEN] }
     val backgroundPlayback: Flow<Boolean> = context.dataStore.data.map { it[BACKGROUND_PLAYBACK] ?: true }
+    val autoResumeOnLaunch: Flow<Boolean> = context.dataStore.data.map { it[AUTO_RESUME_ON_LAUNCH] ?: false }
     val useCustomKeyboard: Flow<Boolean> = context.dataStore.data.map { it[USE_CUSTOM_KEYBOARD] ?: true }
     val ignoredVersionCode: Flow<Int> = context.dataStore.data.map { it[IGNORED_VERSION_CODE] ?: 0 }
     // 均衡器配置：开关 / 预设 key（"flat"/"rock"/...，"custom" = 自定义曲线）/ 频段增益 dB（逗号分隔）
@@ -119,6 +122,10 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun setBackgroundPlayback(enabled: Boolean) {
         context.dataStore.edit { it[BACKGROUND_PLAYBACK] = enabled }
+    }
+
+    suspend fun setAutoResumeOnLaunch(enabled: Boolean) {
+        context.dataStore.edit { it[AUTO_RESUME_ON_LAUNCH] = enabled }
     }
 
     suspend fun setUseCustomKeyboard(enabled: Boolean) {

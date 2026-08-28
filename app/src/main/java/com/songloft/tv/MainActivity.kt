@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.data.storage.PreferencesDataStore
+import com.songloft.tv.data.storage.ResumeSnapshotStore
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.domain.MappingTarget
 import com.songloft.tv.domain.PlayMode
@@ -93,6 +94,9 @@ class MainActivity : ComponentActivity() {
     lateinit var preferencesDataStore: PreferencesDataStore
 
     @Inject
+    lateinit var resumeSnapshotStore: ResumeSnapshotStore
+
+    @Inject
     lateinit var keyMappingManager: KeyMappingManager
 
     /** 全局「返回顶部/返回底部」回调桥，由当前组合中的页面注册滚动实现 */
@@ -124,6 +128,7 @@ class MainActivity : ComponentActivity() {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         MainApp(
                             preferencesDataStore = preferencesDataStore,
+                            resumeSnapshotStore = resumeSnapshotStore,
                             playerController = playerController,
                             onPlaySongs = { songs, index, contextType, contextKey ->
                                 openPlayer(songs, index, contextType, contextKey)
@@ -170,6 +175,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp(
     preferencesDataStore: PreferencesDataStore,
+    resumeSnapshotStore: ResumeSnapshotStore,
     playerController: PlayerController,
     onPlaySongs: (List<Song>, Int, String?, String?) -> Unit,
     onShufflePlay: (List<Song>, String?, String?) -> Unit,
@@ -181,7 +187,8 @@ fun MainApp(
 
     when (authState) {
         is AuthState.LoggedIn -> TvApp(
-            preferencesDataStore, authViewModel, playerController, onPlaySongs, onShufflePlay, onOpenPlayer, onExit
+            preferencesDataStore, resumeSnapshotStore, authViewModel, playerController,
+            onPlaySongs, onShufflePlay, onOpenPlayer, onExit
         )
         else -> AuthSetupScreen(authViewModel)
     }
@@ -190,6 +197,7 @@ fun MainApp(
 @Composable
 fun TvApp(
     preferencesDataStore: PreferencesDataStore,
+    resumeSnapshotStore: ResumeSnapshotStore,
     authViewModel: AuthViewModel,
     playerController: PlayerController,
     onPlaySongs: (List<Song>, Int, String?, String?) -> Unit,
@@ -238,6 +246,16 @@ fun TvApp(
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { updateViewModel.autoCheckOnLaunch() }
+
+    // 开机自动续播：登录完成即恢复上次队列与进度开始播放，悬浮播放器条随之出现；
+    // 已有播放队列时跳过（后台播放存活的重启场景，或防止重复恢复）
+    LaunchedEffect(Unit) {
+        if (!preferencesDataStore.autoResumeOnLaunch.first()) return@LaunchedEffect
+        if (playerController.state.value.queue.isNotEmpty()) return@LaunchedEffect
+        resumeSnapshotStore.snapshot.first()?.let { snapshot ->
+            playerController.resumePlayback(snapshot)
+        }
+    }
     UpdateDialog(
         state = updateState,
         onStartDownload = updateViewModel::startDownload,

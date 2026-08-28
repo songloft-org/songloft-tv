@@ -263,6 +263,15 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        SettingsSection("开机自动续播（启动后接着上次进度播放）") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OptionChip("是", uiState.autoResumeOnLaunch) { viewModel.setAutoResumeOnLaunch(true) }
+                OptionChip("否", !uiState.autoResumeOnLaunch) { viewModel.setAutoResumeOnLaunch(false) }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
         SettingsSection("使用自定义键盘（关闭后使用系统键盘输入）") {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OptionChip("是", uiState.useCustomKeyboard) { viewModel.setUseCustomKeyboard(true) }
