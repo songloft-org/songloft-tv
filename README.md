@@ -21,6 +21,12 @@
   - 播放模式切换（顺序/列表循环/单曲循环/随机）、播放队列抽屉
   - 媒体键直达、左右键短按切歌/长按快进快退、上下键唤出控制栏
   - 均衡器 + 音效（环绕/低音增强/响度/混响，系统预设 + 频段微调，设置页可快捷开关；设备不支持时自动提示）
+- **K 歌模式**（借鉴 [NASMusicTV](https://github.com/hxzhang2000/NASMusicTV)）：
+  - KTV 全屏双行歌词界面（上行当前演唱 + 下行预览），幂函数 pacing 模拟前快后慢节奏
+  - 逐字像素级平滑高亮（双层 clipRect 裁剪方案，基于 TextLayoutResult 精确到半字粒度）
+  - 手机扫码点歌（局域网 Web 服务，搜索/加入/置顶/删除歌曲，二维码自动展示）
+  - K 歌独立播放列表（与主页队列隔离，退出时还原），退出确认弹窗 + 主播放器自动暂停
+  - 重唱/原伴唱切换/K 歌队列管理
 - **悬浮迷你播放器**：旋转封面 + 歌名，全页面悬浮
 - **设置**：主题模式（深/浅/暗夜/跟随系统）、主题色调（黛青蓝/薄荷绿/珊瑚粉/蜜橘橙）、音质选择、播放缓存、后台播放、音效、睡眠定时器、歌词样式、自定义按键映射、日志导出（网页下载）、应用更新检查、问题反馈、操作说明、关于
 - **遥控体验**：全局 D-Pad 焦点导航、默认焦点落在底部 Tab 便于快速切换、退出二次确认、危险操作二次确认、三段式返回（回顶 → 聚焦顶部按钮 → 底部 Tab → 回首页）、自定义按键映射（任意物理键录制为 上/下/左/右/返回/确认/返回顶部/返回底部，兼容非标遥控器与车机方向盘）、返回顶部/返回底部特殊功能键（长列表快速回顶、焦点跳底部 Tab 或设置页退出登录按钮）
@@ -99,6 +105,7 @@ app/src/main/java/com/songloft/tv/
 │   ├── playlist/     # 歌单列表与详情
 │   ├── my/           # 我的收藏
 │   ├── player/       # 全屏播放器
+│   ├── karaoke/      # K 歌模式（双行歌词、扫码点歌、队列管理）
 │   ├── settings/     # 设置
 │   ├── config/       # 服务器配置/登录
 │   ├── components/   # 通用组件（悬浮播放器等）
@@ -118,6 +125,7 @@ app/src/main/java/com/songloft/tv/
 | [songloft](https://github.com/songloft-org/songloft) | 主程序，音乐服务器后端，提供全部 API 接口  |
 | [songloft-player](https://github.com/songloft-org/songloft-player) | API 接口定义、数据模型、功能逻辑、主题与样式 |
 | [music-tv](https://github.com/boluofan/music-tv) | TV 原生 UI 布局、焦点交互、沉浸播放器模式 |
+| [NASMusicTV](https://github.com/hxzhang2000/NASMusicTV) | K 歌模式：逐字卡拉 OK 高亮渲染、双层 clipRect 裁剪方案、KTV 双行歌词视图、扫码点歌交互 |
 | [songloft-library-plus](https://github.com/charce526/songloft-library-plus) | 【首页】概览功能与布局                |
 | [songloft-plugin-stats](https://github.com/songloft-org/songloft-plugin-stats) | 【播放统计】统计接口定义、数据模型与统计页签布局 |
 

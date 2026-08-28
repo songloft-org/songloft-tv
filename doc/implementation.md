@@ -124,6 +124,7 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 `@Singleton`，通过 `withController(action)` 懒建 `MediaController` 连接 MusicService。暴露 `state: StateFlow<PlaybackState>`（queue/currentIndex/currentSong/currentTrack/embeddedTracks/isPlaying/isBuffering/duration/playMode/睡眠定时器状态）。
 
 - **队列**：`play(queue, index, contextType?, contextKey?)` 先同步更新 state（UI 提前展示），再 `setMediaItems` + `prepare` + `play`；context 随 state 保存，仅在 `play` 事件上报时携带（歌单详情页传 `playlist`+歌单 ID，分面页传 `artist/album/year`+取值，搜索/收藏等扁平列表不传）。
+- **播放控制**：`togglePlay()` 切换播放/暂停；`pause()` 强制暂停（K 歌退出时使用）。
 - **播放模式**：`enum PlayMode { ORDER, LOOP, SINGLE, RANDOM }`，映射到 ExoPlayer 的 repeatMode + shuffleModeEnabled；`cyclePlayMode()` 轮转。
 - **双音轨切换 `switchTrack(track)`**，两种机制：
   1. 服务端多文件音轨：记录进度 → `replaceMediaItem` 重建 MediaItem → `seekTo` 续播；`onMediaItemTransition` 中同曲 id 不重置 currentTrack；
@@ -148,13 +149,75 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 ### 3.4 播放器 UI（`ui/player/`）
 
 - **PlayerActivity**：独立 Activity，仅承载 `PlayerScreen`。
-- **PlayerViewModel**：collect PlayerController.state 映射 UiState；进度轮询自适应——有逐字歌词时 60ms（卡拉 OK 平滑），否则 500ms；收藏乐观更新、失败回滚。
+- **PlayerViewModel**：collect PlayerController.state 映射 UiState；进度轮询自适应——有逐字歌词时 60ms（卡拉 OK 平滑），否则 500ms；收藏乐观更新、失败回滚。K 歌退出走两步确认（`requestExitKaraoke` → `showExitKaraokeConfirm` → 弹窗确认 → `exitKaraokeMode`），退出时暂停主播放器。
 - **交互**：控制栏 10s 无操作自动隐藏；控制隐藏时——左右键长按连续 ±10s seek、短按切歌、上下/OK 唤出控制栏；媒体键直达（MediaNext/Previous/PlayPause）。控制栏左上角带返回按钮（`PlayerActivity` 内 BackHandler/按钮返回主界面）。
 - **两种模式**：视频（全屏 `VideoPlayer` = PlayerView 绑定 MediaController，多音轨时右上角 TrackChips）；音频（封面 blur(60dp) 毛玻璃背景 + 左封面/右 `LyricsPanel`）。
 - **LyricsPanel**：自动滚动居中；逐字行渲染 KaraokeLine（按 word start/end 进度逐字点亮）；附带翻译行。
   - **ControlBar**：SeekBar（支持触屏点击定位 + 拖拽 seek）+ 上一曲/播放暂停/下一曲/播放模式/收藏/重新获取歌词/均衡器/队列按钮（重新获取歌词走 `refresh=1` 重跑服务端歌词插件搜索，请求中按钮显示加载圈）。原唱/伴唱按钮对所有非电台歌曲显示：多音轨时 `cycleAudioTrack` 切轨道（Scheme B），单音轨时 `toggleAccompaniment` 开关 DSP 人声消除（Scheme A）。
 - **QueueDrawer**：左侧 400dp 抽屉，当前曲高亮，自动滚到当前位置，点击条目跳播（`PlayerController.playAt(index)`）。
 - **EqPanel**：右侧 440dp 抽屉（与队列抽屉对称），开关 chip（开启/关闭）+ 系统预设 chip（FlowRow 前 6 个）+ 频段增益条（聚焦时左右键 ±1dB 步进，范围 levelMin/100..levelMax/100，手绘轨道+拇指复用 ControlBar SeekBar 样式）；`eqSupported=false` 时仅显示"当前设备不支持均衡器"；Back/点击外部关闭，Back 优先级：队列抽屉 > EQ 面板 > 控制栏。
+
+### 3.5 K 歌模式（借鉴 [NASMusicTV](https://github.com/hxzhang2000/NASMusicTV)）
+
+K 歌模式提供 KTV 风格的全屏演唱体验，与主播放器共享同一 ExoPlayer 实例，UI 完全独立。
+
+#### 3.5.1 架构概览
+
+```
+PlayerViewModel
+  ├─ enterKaraokeMode()  → PlayerController.enterKaraoke()（备份主页队列，载入 K 歌独立列表）
+  ├─ exitKaraokeMode()   → PlayerController.exitKaraoke()（还原主页队列 + 暂停）
+  └─ karaokeAdd/MoveTop/Remove/PlayAt → 操作独立列表
+         │
+ui/karaoke/
+  ├─ KaraokePlayerScreen   # 全屏 KTV 界面（双行歌词 + 控制栏 + 二维码）
+  ├─ KaraokeLyricsView     # 双行歌词视图 + 逐字高亮渲染
+  ├─ KaraokeControlBar     # K 歌专用控制栏（重唱/原伴唱/队列/上下首）
+  ├─ KaraokeQueueList      # K 歌队列管理（独立模态抽屉）
+  └─ KaraokeQrCode         # 扫码点歌二维码展示
+```
+
+#### 3.5.2 独立播放列表
+
+`PlayerController` 维护 K 歌独立列表（`karaokeList`），与主页队列完全隔离：
+
+- **进入 K 歌**（`enterKaraoke()`）：备份主页队列/索引/进度到 `mainQueueBackup`/`mainIndexBackup`/`mainPosBackup`，从当前播放曲开始截取未唱歌曲载入引擎。
+- **退出 K 歌**（`exitKaraoke()`）：还原主页队列与进度，清空 K 歌列表。退出时默认暂停主播放器，由用户主动继续播放。
+- **期间操作**：`karaokeAdd`/`karaokeMoveTop`/`karaokeRemove`/`karaokePlayAt` 只作用于独立列表，不改动主页队列。
+- **自然播放结束**：`onMediaItemTransition` 中 K 歌模式下，唱完的歌曲自动从独立列表移除（切歌/跳过不移除）。
+
+#### 3.5.3 逐字卡拉 OK 高亮
+
+借鉴 NASMusicTV 的双层 clipRect 裁剪方案，实现像素级平滑高亮：
+
+- **底层**：灰色未播放全文。
+- **顶层**：高亮文本按进度 `clipRect` 逐行揭示。
+- **坐标计算**：利用 `TextLayoutResult` 获取每个字符的精确像素位置（`getHorizontalPosition`/`getLineLeft`/`getLineRight`），边界插值到半字粒度实现连续扫动。
+- **越行修复**：`boundaryOffset + 1 >= lineEnd` 时用 `getLineRight(lineIdx)` 代替 `getHorizontalPosition`，避免插值目标跳到下一视觉行首字坐标导致高亮"回退"。
+- **两种渲染路径**：
+  - `KaraokeLyricsView`（K 歌双行视图）：基于 `karaokePacingFraction`（幂函数 `progress^0.6` 前快后慢）驱动逐行裁剪。
+  - `LyricsPanel.SmoothWordHighlightLine`（播放器逐字行）：基于 `calculateCoveredChars`（按 word 时间戳累计已唱字符数 + 当前字进度比例）驱动裁剪。
+
+#### 3.5.4 KTV 双行歌词视图
+
+`KaraokeLyricsView` 固定显示两行（当前演唱行 + 下一行预览），滚动窗口机制避免整组替换跳动：
+
+- 50ms 高频本地时钟插值（避免 ExoPlayer 回调跳动）。
+- 幂函数 pacing（`progress^0.6`）模拟前快后慢节奏。
+- 上行靠左（经典卡拉 OK 样式），下行靠右预览。
+
+#### 3.5.5 扫码点歌
+
+K 歌模式下启动 `ConfigWebServer`（NanoHTTPD），候选端口 18911-18914：
+
+- 手机扫码访问 `http://<局域网IP>:<端口>/#order`，可搜索/加入/置顶/删除歌曲。
+- 回调走 NanoHTTPD 工作线程，`PlayerViewModel` 内全部切到主线程执行（避免 MediaController 跨线程异常）。
+- 二维码由 `KaraokeQrCode` 组件展示在 K 歌界面右上角。
+- 退出 K 歌时自动停止 Web 服务。
+
+#### 3.5.6 退出确认弹窗
+
+按返回键或点击返回按钮时，先弹出「确定退出 K 歌吗？」确认对话框（默认焦点在"取消"），确认后才执行退出流程。`BackHandler` 优先级：退出确认弹窗 > 队列抽屉 > 音效面板 > 控制栏 > K 歌模式 > 返回。
 
 ## 4. UI 层
 
