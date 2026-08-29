@@ -219,6 +219,10 @@ K 歌模式下启动 `ConfigWebServer`（NanoHTTPD），候选端口 18911-18914
 
 按返回键或点击返回按钮时，先弹出「确定退出 K 歌吗？」确认对话框（默认焦点在"取消"），确认后才执行退出流程。`BackHandler` 优先级：退出确认弹窗 > 队列抽屉 > 音效面板 > 控制栏 > K 歌模式 > 返回。
 
+#### 3.5.7 屏幕常亮
+
+K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerScreen` 用 `DisposableEffect(uiState.karaokeModeEnabled)` 经 `LocalView` 设置 `View.keepScreenOn`（即 `FLAG_KEEP_SCREEN_ON`），仅 K 歌模式置位，退出或离开播放器自动清除。默认行为，无设置项。
+
 ## 4. UI 层
 
 ### 4.1 导航
