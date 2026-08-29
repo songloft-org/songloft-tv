@@ -122,12 +122,15 @@ class ConfigWebServer(
             return json(Response.Status.OK, beaconJson())
         }
         // ===== 扫码点歌接口 =====
-        if (session.method == Method.GET && session.uri == "/order/queue") {
+        // 当前 K 歌歌单（禁用缓存：手机端轮询需实时反映已唱移除/置顶变化）
+        if (session.method == Method.GET && session.uri.startsWith("/order/queue")) {
             val queue = onOrderQueue?.invoke().orEmpty()
             val json = queue.mapIndexed { index, song ->
                 """{"index":$index,"title":${esc(song.title)},"artist":${esc(song.artist)},"id":${song.id}}"""
             }.joinToString(",", "[", "]")
-            return json(Response.Status.OK, json)
+            return json(Response.Status.OK, json).apply {
+                addHeader("Cache-Control", "no-store")
+            }
         }
         if (session.method == Method.POST && session.uri == "/order/search") {
             session.parseBody(HashMap())
@@ -466,7 +469,7 @@ class ConfigWebServer(
                 .catch(function(){loadOrder();});
             };
             function loadOrder(){
-              fetch('/order/queue').then(function(r){return r.json();}).then(function(list){
+              fetch('/order/queue?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(list){
                 var el=document.getElementById('orderQueue');
                 if(!list.length){el.innerHTML='<div class="hint">队列为空</div>';return;}
                 el.innerHTML=list.map(function(s){
