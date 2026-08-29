@@ -281,6 +281,15 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        SettingsSection("播放器控制栏常驻（开启后底部功能菜单不自动隐藏）") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OptionChip("是", uiState.playerControlsPersistent) { viewModel.setPlayerControlsPersistent(true) }
+                OptionChip("否", !uiState.playerControlsPersistent) { viewModel.setPlayerControlsPersistent(false) }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
         SettingsSection("使用自定义键盘（关闭后使用系统键盘输入）") {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OptionChip("是", uiState.useCustomKeyboard) { viewModel.setUseCustomKeyboard(true) }

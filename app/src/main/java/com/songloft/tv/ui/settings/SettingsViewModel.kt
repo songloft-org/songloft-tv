@@ -38,6 +38,7 @@ data class SettingsUiState(
     val backgroundPlayback: Boolean = true,
     val autoResumeOnLaunch: Boolean = false,
     val autoOpenPlayerOnLaunch: Boolean = false,
+    val playerControlsPersistent: Boolean = false,
     val useCustomKeyboard: Boolean = true,
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemaining: Int = 0,
@@ -107,6 +108,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.autoOpenPlayerOnLaunch.collect { enabled ->
                 _uiState.value = _uiState.value.copy(autoOpenPlayerOnLaunch = enabled)
+            }
+        }
+        viewModelScope.launch {
+            dataStore.playerControlsPersistent.collect { enabled ->
+                _uiState.value = _uiState.value.copy(playerControlsPersistent = enabled)
             }
         }
         viewModelScope.launch {
@@ -216,6 +222,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoOpenPlayerOnLaunch(enabled: Boolean) {
         viewModelScope.launch { dataStore.setAutoOpenPlayerOnLaunch(enabled) }
+    }
+
+    fun setPlayerControlsPersistent(enabled: Boolean) {
+        viewModelScope.launch { dataStore.setPlayerControlsPersistent(enabled) }
     }
 
     fun setUseCustomKeyboard(enabled: Boolean) {

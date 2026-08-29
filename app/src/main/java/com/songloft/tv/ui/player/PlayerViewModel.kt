@@ -66,6 +66,8 @@ data class PlayerUiState(
     val vocalRemovalEnabled: Boolean = false,
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30,
+    // 控制栏常驻：开启后底部功能菜单不自动隐藏
+    val controlsPersistent: Boolean = false,
     // K 歌模式开关
     val karaokeModeEnabled: Boolean = false,
     // K 歌"扫码点歌"服务器地址（null 表示未开启）
@@ -113,6 +115,11 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.lyricFontSize.collect { size ->
                 _uiState.update { it.copy(lyricFontSize = size) }
+            }
+        }
+        viewModelScope.launch {
+            dataStore.playerControlsPersistent.collect { enabled ->
+                _uiState.update { it.copy(controlsPersistent = enabled) }
             }
         }
         viewModelScope.launch {

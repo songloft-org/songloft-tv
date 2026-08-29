@@ -128,8 +128,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(uiState.isPlaying, uiState.showControls, interactionCount) {
-        if (uiState.isPlaying && uiState.showControls) {
+    LaunchedEffect(uiState.isPlaying, uiState.showControls, interactionCount, uiState.controlsPersistent) {
+        if (uiState.isPlaying && uiState.showControls && !uiState.controlsPersistent) {
             delay(10_000)
             viewModel.hideControls()
         }
