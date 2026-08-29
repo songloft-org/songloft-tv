@@ -272,6 +272,15 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        SettingsSection("自动进入播放器（启动时存在播放中歌曲直接进入全屏播放器）") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OptionChip("是", uiState.autoOpenPlayerOnLaunch) { viewModel.setAutoOpenPlayerOnLaunch(true) }
+                OptionChip("否", !uiState.autoOpenPlayerOnLaunch) { viewModel.setAutoOpenPlayerOnLaunch(false) }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
         SettingsSection("使用自定义键盘（关闭后使用系统键盘输入）") {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OptionChip("是", uiState.useCustomKeyboard) { viewModel.setUseCustomKeyboard(true) }

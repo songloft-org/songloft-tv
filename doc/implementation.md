@@ -259,6 +259,8 @@ K 歌模式下启动 `ConfigWebServer`（NanoHTTPD），候选端口 18911-18914
 - **音质**：原始("")/mp3/flac 写 DataStore，PlayerController 取流时读取拼入 quality 参数。
 - **播放缓存**：`CacheSizeRow` 调节 0-1024MB（步进 128，D-Pad 左右键 + 触屏滑动，0=关闭、1024=1 GB、其余 xxx MB，"恢复默认"=0）；提示"未播放时修改立即生效，播放中将于下次播放生效；设为 0 即关闭并清空缓存；更换服务器后自动清空"；下方显示**当前占用**（`PlaybackCache.usage` 统计目录文件字节）+ **清除缓存**按钮（`clearPlayCache` 发 `cache/clear`）；占用数值在设置页可见期间**每 5 秒心跳刷新**（`cacheUsageTicker` flow + `repeatOnLifecycle(STARTED)` collect，离开页面自动停止）。
 - **背景播放**：退出应用时是否 stopService（关闭则退出时结束后台播放）。
+- **开机自动续播**：`auto_resume_on_launch`（默认关）。登录完成后 `MainActivity.TvApp` 读 `ResumeSnapshotStore` 快照（独立 DataStore，队列截尾 500 + 曲序 + 进度），经 `PlayerController.resumePlayback` 恢复队列并立即开始播放（电台进度归零）；已有播放队列时跳过（后台播放存活的重启场景）。
+- **自动进入播放器**：`auto_open_player_on_launch`（默认关）。开关开启且启动时存在播放中歌曲（后台播放存活，或续播开启且有快照）时，等待 `MediaController` 连接同步出当前歌曲后自动打开全屏播放器；无歌在播则停留主页。
 - **自定义键盘**：使用 `TvKeyboard` 或系统键盘。
 - **按键设置**（自定义遥控器按键映射）：二级弹窗内 8 个配置项——上/下/左/右/返回/确认 + 返回顶部/返回底部，点击任意一项进入**录制模式**（"请按下您希望作为【X】使用的按键"，按下物理键即保存并关闭；无法识别的键拒绝、录制非"返回"项时按返回取消、已分配给其他功能键的按键提示不可用），末尾"恢复默认"一键重置；持久化 `key_mapping_*`，重启后生效，机制见 §4.1。适用于 keycode 非标的遥控器/车机方向盘按键。
 - **睡眠定时**：分钟定时 + 播完 N 首两种（互斥），直接调 PlayerController（不持久化），剩余量实时回显。
