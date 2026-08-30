@@ -60,6 +60,7 @@ class PreferencesDataStore @Inject constructor(
         private val KEY_MAPPING_CONFIRM = intPreferencesKey("key_mapping_confirm")
         private val KEY_MAPPING_TOP = intPreferencesKey("key_mapping_top")
         private val KEY_MAPPING_BOTTOM = intPreferencesKey("key_mapping_bottom")
+        private val KEY_MAPPING_ACCOMPANIMENT = intPreferencesKey("key_mapping_accompaniment")
     }
 
     val serverUrl: Flow<String?> = context.dataStore.data.map { it[SERVER_URL] }
@@ -106,7 +107,8 @@ class PreferencesDataStore @Inject constructor(
             back = it[KEY_MAPPING_BACK] ?: 0,
             confirm = it[KEY_MAPPING_CONFIRM] ?: 0,
             top = it[KEY_MAPPING_TOP] ?: 0,
-            bottom = it[KEY_MAPPING_BOTTOM] ?: 0
+            bottom = it[KEY_MAPPING_BOTTOM] ?: 0,
+            accompaniment = it[KEY_MAPPING_ACCOMPANIMENT] ?: 0
         )
     }
 
@@ -216,6 +218,7 @@ class PreferencesDataStore @Inject constructor(
             it[KEY_MAPPING_CONFIRM] = m.confirm
             it[KEY_MAPPING_TOP] = m.top
             it[KEY_MAPPING_BOTTOM] = m.bottom
+            it[KEY_MAPPING_ACCOMPANIMENT] = m.accompaniment
         }
     }
 

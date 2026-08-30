@@ -549,13 +549,15 @@ private fun DangerTextButton(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (isFocused) MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+                if (isFocused) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
                 else Color.Transparent
             )
             .then(
-                if (isFocused) Modifier.border(
-                    2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(8.dp)
-                ) else Modifier
+                Modifier.border(
+                    if (isFocused) 3.dp else 1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = if (isFocused) 1f else 0.7f),
+                    RoundedCornerShape(8.dp)
+                )
             )
             .onFocusChanged { isFocused = it.isFocused }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
@@ -799,7 +801,8 @@ private fun KeyMappingDialog(
                         SettingsItem(
                             label = "恢复默认",
                             value = "重置全部按键映射",
-                            onClick = onReset
+                            onClick = onReset,
+                            danger = true
                         )
                     }
                 }
@@ -896,9 +899,11 @@ private fun SettingsItem(
     label: String,
     value: String,
     onClick: (() -> Unit)? = null,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    danger: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val accent = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
 
     Row(
         modifier = Modifier
@@ -910,19 +915,27 @@ private fun SettingsItem(
                 .clickable { onClick() }
             else Modifier)
             .background(
-                if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                when {
+                    isFocused && danger -> MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
+                    isFocused -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    danger -> MaterialTheme.colorScheme.error.copy(alpha = 0.05f)
+                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                }
             )
             .then(
                 if (isFocused) Modifier.border(
-                    2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)
+                    2.dp, accent, RoundedCornerShape(12.dp)
                 ) else Modifier
             )
             .padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text(
+            label,
+            fontSize = 16.sp,
+            color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+        )
         Text(value, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     }
 }
