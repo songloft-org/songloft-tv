@@ -27,6 +27,8 @@ android {
             "\"${LocalDateTime.now(ZoneOffset.UTC)
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH:mm:ss"))}\""
         )
+        // TV 端仅中文界面，剔除 androidx 等库附带的其他语言翻译资源
+        resConfigs("zh")
     }
 
     val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -43,7 +45,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (!keystorePath.isNullOrBlank()) {
                 signingConfigs.getByName("release")
             } else {
@@ -55,6 +59,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    packaging {
+        resources.excludes += setOf(
+            "DebugProbesKt.bin",
+            "META-INF/*.kotlin_module",
+        )
     }
 
     lint {
