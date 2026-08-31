@@ -41,7 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 
-private const val DISCLAIMER_ITEM_COUNT = 3
+private const val DISCLAIMER_ITEM_COUNT = 4
 
 /**
  * 首次启动的版权说明/免责声明弹窗。
@@ -138,6 +138,15 @@ fun DisclaimerDialog(
                         title = "隐私说明",
                         lines = listOf(
                             "应用仅在本机保存您填写的服务器地址与登录凭证，用于连接您的服务器，不会收集或上传任何个人信息"
+                        )
+                    )
+                }
+                item {
+                    DisclaimerBlock(
+                        title = "使用安全声明",
+                        lines = listOf(
+                            "本应用面向 Android TV 及横屏大屏设备设计，未对车载环境做任何适配与安全优化",
+                            "严禁在驾驶过程中操作本应用（包括触控、遥控器或任何交互），由此导致的一切事故与后果由使用者自行承担"
                         )
                     )
                 }
