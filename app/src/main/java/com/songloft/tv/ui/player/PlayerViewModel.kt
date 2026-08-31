@@ -68,6 +68,8 @@ data class PlayerUiState(
     val lyricFontSize: Int = 30,
     // 控制栏常驻：开启后底部功能菜单不自动隐藏
     val controlsPersistent: Boolean = false,
+    val screensaverTimeoutMs: Long = 0L,
+    val screensaverActive: Boolean = false,
     // K 歌模式开关
     val karaokeModeEnabled: Boolean = false,
     // K 歌"扫码点歌"服务器地址（null 表示未开启）
@@ -91,6 +93,35 @@ class PlayerViewModel @Inject constructor(
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
     private var lyricSongId: Long? = null
+
+    // 主页空闲跳转进入时的挂起标志：MediaController 未连接前 isPlaying 还是 false，等首次同步出歌曲再激活
+    private var screensaverPending = false
+
+    fun activateScreensaver() {
+        val s = _uiState.value
+        if (s.screensaverActive || s.screensaverTimeoutMs <= 0L || !s.isPlaying ||
+            s.karaokeModeEnabled || s.isVideoMode || s.currentSong == null
+        ) return
+        _uiState.update {
+            it.copy(
+                screensaverActive = true,
+                showControls = false,
+                showQueueDrawer = false,
+                showSoundPanel = false
+            )
+        }
+    }
+
+    fun wakeScreensaver() {
+        if (!_uiState.value.screensaverActive) return
+        _uiState.update { it.copy(screensaverActive = false) }
+        if (_uiState.value.controlsPersistent) showControls()
+    }
+
+    fun requestScreensaver() {
+        screensaverPending = true
+        activateScreensaver()
+    }
 
     override fun onCleared() {
         stopKaraokeOrderServer()
@@ -120,6 +151,11 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.playerControlsPersistent.collect { enabled ->
                 _uiState.update { it.copy(controlsPersistent = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            dataStore.screensaverTimeoutMinutes.collect { minutes ->
+                _uiState.update { it.copy(screensaverTimeoutMs = minutes * 60_000L, screensaverActive = it.screensaverActive && minutes > 0) }
             }
         }
         viewModelScope.launch {
@@ -155,8 +191,14 @@ class PlayerViewModel @Inject constructor(
                         sfxModeSupported = s.sfxModeSupported,
                         sfxOnA2dp = s.sfxOnA2dp,
                         vocalRemovalEnabled = s.vocalRemovalEnabled,
-                        isAccompanimentOn = playerController.isAccompanimentOn()
+                        isAccompanimentOn = playerController.isAccompanimentOn(),
+                        screensaverActive = it.screensaverActive && (s.isPlaying || s.isBuffering) &&
+                            s.currentSong != null && s.currentSong.isVideo != true
                     )
+                }
+                if (screensaverPending && s.currentSong != null) {
+                    screensaverPending = false
+                    activateScreensaver()
                 }
                 val songId = s.currentSong?.id
                 if (songId != null && songId != lyricSongId) {

@@ -89,8 +89,25 @@ class PlayerActivity : ComponentActivity() {
 
     private lateinit var viewModel: PlayerViewModel
 
+    // 唤醒屏保的那次物理按键后续事件（长按 repeat / KeyUp）继续吞掉，避免唤醒后误触快进/切歌
+    private var wakeConsumeKeyCode: Int? = null
+
     /** 用户自定义按键映射：原伴唱切换键（K 歌模式下）拦截处理，其余命中映射表的 keycode 翻译成标准功能键 keycode 后继续分发 */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (viewModel.uiState.value.screensaverActive) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                wakeConsumeKeyCode = event.keyCode
+                viewModel.wakeScreensaver()
+            }
+            return true
+        }
+        wakeConsumeKeyCode?.let { code ->
+            if (event.keyCode == code) {
+                if (event.action == KeyEvent.ACTION_UP) wakeConsumeKeyCode = null
+                return true
+            }
+            wakeConsumeKeyCode = null
+        }
         if (keyMappingManager.matchSpecialKey(event.keyCode) == MappingTarget.ACCOMPANIMENT &&
             viewModel.uiState.value.karaokeModeEnabled
         ) {
@@ -105,6 +122,9 @@ class PlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
+        if (intent.getBooleanExtra(EXTRA_SCREENSAVER, false)) {
+            viewModel.requestScreensaver()
+        }
 
         setContent {
             TvTheme {
@@ -115,6 +135,10 @@ class PlayerActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        const val EXTRA_SCREENSAVER = "extra_screensaver"
+    }
 }
 
 @Composable
@@ -124,10 +148,10 @@ fun PlayerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // K 歌模式常亮：唱歌时长时间不按遥控器，防止熄屏/屏保（View.keepScreenOn 即 FLAG_KEEP_SCREEN_ON）
+    // K 歌模式与屏保常亮：防止熄屏/系统屏保（View.keepScreenOn 即 FLAG_KEEP_SCREEN_ON）
     val view = LocalView.current
-    DisposableEffect(uiState.karaokeModeEnabled) {
-        view.keepScreenOn = uiState.karaokeModeEnabled
+    DisposableEffect(uiState.karaokeModeEnabled, uiState.screensaverActive) {
+        view.keepScreenOn = uiState.karaokeModeEnabled || uiState.screensaverActive
         onDispose { view.keepScreenOn = false }
     }
 
@@ -164,6 +188,18 @@ fun PlayerScreen(
             delay(10_000)
             viewModel.closeSoundPanel()
         }
+    }
+
+    // 空闲屏保：播放中超过设定时长无任何按键操作时进入歌词屏保（关闭或 K 歌/视频模式不触发）
+    LaunchedEffect(
+        uiState.isPlaying, uiState.karaokeModeEnabled, uiState.isVideoMode,
+        uiState.screensaverTimeoutMs, uiState.screensaverActive, interactionCount
+    ) {
+        if (uiState.screensaverActive || uiState.screensaverTimeoutMs <= 0L ||
+            uiState.karaokeModeEnabled || uiState.isVideoMode || !uiState.isPlaying
+        ) return@LaunchedEffect
+        delay(uiState.screensaverTimeoutMs)
+        viewModel.activateScreensaver()
     }
 
     LaunchedEffect(uiState.showControls, uiState.showQueueDrawer, uiState.showSoundPanel, uiState.karaokeModeEnabled) {
@@ -227,10 +263,12 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(PlayerColors.Background)
-            .pointerInput(uiState.showControls, uiState.showQueueDrawer, uiState.showSoundPanel) {
-                // 控制栏/面板弹出时点击其他区域关闭；子节点消费的事件不会触发此回调
+            .pointerInput(uiState.showControls, uiState.showQueueDrawer, uiState.showSoundPanel, uiState.screensaverActive) {
+                // 控制栏/面板弹出时点击其他区域关闭；屏保态点击唤醒；子节点消费的事件不会触发此回调
                 // 关闭优先级与 BackHandler 一致：队列抽屉 → 音效面板 → 控制栏
-                if (uiState.showQueueDrawer) {
+                if (uiState.screensaverActive) {
+                    detectTapGestures { viewModel.wakeScreensaver() }
+                } else if (uiState.showQueueDrawer) {
                     detectTapGestures { viewModel.closeQueueDrawer() }
                 } else if (uiState.showSoundPanel) {
                     detectTapGestures { viewModel.closeSoundPanel() }
@@ -334,6 +372,63 @@ fun PlayerScreen(
                 backButtonFocusRequester = micButtonFocus,
                     onShowControls = { viewModel.showControls() }
                 )
+            }
+
+            // 屏保模式：模糊封面背景 + 居中大歌词
+            uiState.screensaverActive -> {
+                uiState.currentSong?.let { song ->
+                    UrlHelper.resolve(song.coverUrl)?.let { cover ->
+                        AsyncImage(
+                            model = cover,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().blur(60.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(PlayerColors.Scrim)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (uiState.lyrics.isEmpty()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = song.title,
+                                    fontSize = 34.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PlayerColors.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = song.artist ?: "",
+                                    fontSize = 20.sp,
+                                    color = PlayerColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else {
+                            val highlightColor = when (uiState.lyricHighlightColor) {
+                                2 -> MaterialTheme.colorScheme.primary
+                                else -> PlayerColors.TextPrimary
+                            }
+                            LyricsPanel(
+                                lyrics = uiState.lyrics,
+                                currentIndex = uiState.currentLyricIndex,
+                                currentPosition = uiState.currentPosition,
+                                highlightColor = highlightColor,
+                                fontSize = 46,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 96.dp)
+                            )
+                        }
+                    }
+                }
             }
             
             // 正常视频播放模式
@@ -483,7 +578,7 @@ fun PlayerScreen(
 
             // 控制栏隐藏时的触屏入口：用 pointerInput 而非 clickable，避免进入遥控器焦点链
             AnimatedVisibility(
-                visible = !uiState.showControls && !uiState.showQueueDrawer && !uiState.showSoundPanel,
+                visible = !uiState.showControls && !uiState.showQueueDrawer && !uiState.showSoundPanel && !uiState.screensaverActive,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier

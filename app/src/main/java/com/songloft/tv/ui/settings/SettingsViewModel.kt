@@ -39,6 +39,7 @@ data class SettingsUiState(
     val autoResumeOnLaunch: Boolean = false,
     val autoOpenPlayerOnLaunch: Boolean = false,
     val playerControlsPersistent: Boolean = false,
+    val screensaverTimeoutMinutes: Int = 0,
     val useCustomKeyboard: Boolean = true,
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemaining: Int = 0,
@@ -113,6 +114,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.playerControlsPersistent.collect { enabled ->
                 _uiState.value = _uiState.value.copy(playerControlsPersistent = enabled)
+            }
+        }
+        viewModelScope.launch {
+            dataStore.screensaverTimeoutMinutes.collect { minutes ->
+                _uiState.value = _uiState.value.copy(screensaverTimeoutMinutes = minutes)
             }
         }
         viewModelScope.launch {
@@ -226,6 +232,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setPlayerControlsPersistent(enabled: Boolean) {
         viewModelScope.launch { dataStore.setPlayerControlsPersistent(enabled) }
+    }
+
+    fun setScreensaverTimeoutMinutes(minutes: Int) {
+        viewModelScope.launch { dataStore.setScreensaverTimeoutMinutes(minutes) }
     }
 
     fun setUseCustomKeyboard(enabled: Boolean) {
