@@ -57,14 +57,14 @@ class UpdateRepository @Inject constructor(
     companion object {
         private const val TAG = "UpdateRepository"
         private const val STABLE_VERSION_JSON_URL =
-            "https://github.com/boluofan/songloft-tv/releases/latest/download/version.json"
+            "https://github.com/songloft-org/songloft-tv/releases/latest/download/version.json"
         private const val STABLE_APK_URL =
-            "https://github.com/boluofan/songloft-tv/releases/latest/download/songloft-tv.apk"
+            "https://github.com/songloft-org/songloft-tv/releases/latest/download/songloft-tv.apk"
         // CI push main 滚动发布的预发布（先删后建，运行期间可能短暂 404）
         private const val DEV_VERSION_JSON_URL =
-            "https://github.com/boluofan/songloft-tv/releases/download/dev/version.json"
+            "https://github.com/songloft-org/songloft-tv/releases/download/dev/version.json"
         private const val DEV_APK_URL =
-            "https://github.com/boluofan/songloft-tv/releases/download/dev/songloft-tv.apk"
+            "https://github.com/songloft-org/songloft-tv/releases/download/dev/songloft-tv.apk"
 
         // 前缀代理池，空串 = 直连；检查并发请求、下载先测速排序，不再按固定顺序回退
         private val MIRRORS = listOf(
