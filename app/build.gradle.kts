@@ -18,8 +18,8 @@ android {
         applicationId = "com.songloft.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.1.7"
+        versionCode = 12
+        versionName = "2.0.0"
         // 与 CI 的 date -u '+%Y-%m-%d_%H:%M:%S' 同格式，dev 更新检查按字典序比较构建时间
         buildConfigField(
             "String",
