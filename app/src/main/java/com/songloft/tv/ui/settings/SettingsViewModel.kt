@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.songloft.tv.BuildConfig
 import com.songloft.tv.data.api.ApiClient
 import com.songloft.tv.data.cache.PlaybackCache
 import com.songloft.tv.data.storage.PreferencesDataStore
@@ -11,6 +12,11 @@ import com.songloft.tv.data.config.ConfigWebServer
 import com.songloft.tv.domain.KeyMapping
 import com.songloft.tv.domain.MappingTarget
 import com.songloft.tv.domain.PlayerController
+import com.songloft.tv.ui.settings.CrashReporter.copyToClipboard
+import com.songloft.tv.ui.settings.CrashReporter.createShareIntent
+import com.songloft.tv.ui.settings.CrashReporter.exportLatestCrash
+import com.songloft.tv.ui.settings.CrashReporter.getRecentCrashes
+import com.songloft.tv.ui.settings.CrashReporter.loadCrashContent
 import com.songloft.tv.ui.settings.LogDownloadServer
 import com.songloft.tv.util.LogStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -49,6 +55,9 @@ data class SettingsUiState(
     val sfxEnabled: Boolean = false,
     val soundUnsupportedNotice: Boolean = false,
     val logExportStatus: String = "",
+    val crashLogStatus: String = "",
+    val crashDialogContent: String = "",
+    val crashLogFileNames: List<String> = emptyList(),
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30,
     val playCacheMb: Int = 0,
@@ -311,6 +320,115 @@ class SettingsViewModel @Inject constructor(
             ApiClient.authInterceptor.accessToken = null
             ApiClient.authInterceptor.refreshToken = null
         }
+    }
+
+    /** 分享最新崩溃日志 */
+    @androidx.annotation.VisibleForTesting(otherwise = androidx.annotation.VisibleForTesting.PRIVATE)
+    fun shareLatestCrash() {
+        val crashes = getRecentCrashes(context)
+        if (crashes.isEmpty()) {
+            _uiState.update { it.copy(crashLogStatus = "暂无崩溃日志") }
+            return
+        }
+        val latest = crashes.first()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val content = sanitizeCrashContent(latest.readText())
+                val chooser = android.content.Intent.createChooser(createShareIntent(context, "$content\n\n---\n应用版本: ${BuildConfig.VERSION_NAME}"), "发送崩溃日志").apply {
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(chooser)
+                _uiState.update { it.copy(crashLogStatus = "已打开分享面板") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(crashLogStatus = "分享失败：${e.message}") }
+            }
+        }
+    }
+
+    /** 打开崩溃日志弹窗：加载文件列表 + 默认选中最新一条 */
+    fun openCrashLogDialog() {
+        val crashes = getRecentCrashes(context)
+        if (crashes.isEmpty()) {
+            _uiState.update { it.copy(crashLogFileNames = emptyList(), crashDialogContent = "", crashLogStatus = "暂无闪退记录") }
+            return
+        }
+        val fileNames = crashes.map { f ->
+            val name = f.name.removePrefix("crash_").removeSuffix(".log")
+            "📄 $name  (${f.length().toDouble() / 1024} KB)"
+        }
+        val sanitized = sanitizeCrashContent(loadCrashContent(context, crashes.first()))
+        _uiState.update {
+            it.copy(
+                crashLogFileNames = fileNames,
+                crashDialogContent = sanitized,
+                crashLogStatus = "共 ${crashes.size} 条闪退记录"
+            )
+        }
+    }
+
+    /** 切换选中的崩溃日志（点击列表项时调用） */
+    fun selectCrashLog(index: Int) {
+        val crashes = getRecentCrashes(context)
+        if (index < 0 || index >= crashes.size) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val sanitized = sanitizeCrashContent(loadCrashContent(context, crashes[index]))
+                _uiState.update { it.copy(crashDialogContent = sanitized) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(crashDialogContent = "读取失败：${e.message}") }
+            }
+        }
+    }
+
+    /** 导出最新崩溃日志（打开分享面板） */
+    fun exportLatestCrash() {
+        val intent = exportLatestCrash(context) ?: run {
+            _uiState.update { it.copy(crashLogStatus = "无崩溃日志可导出") }
+            return
+        }
+        val chooser = android.content.Intent.createChooser(intent, "导出崩溃日志").apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(chooser)
+        _uiState.update { it.copy(crashLogStatus = "已打开导出面板") }
+    }
+
+    /** 复制最新崩溃日志到剪贴板 */
+    fun copyLatestCrash() {
+        val crashes = getRecentCrashes(context)
+        if (crashes.isEmpty()) {
+            _uiState.update { it.copy(crashLogStatus = "无崩溃日志可复制") }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val raw = crashes.first().readText()
+                copyToClipboard(context, raw)
+                _uiState.update { it.copy(crashLogStatus = "已复制到剪贴板") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(crashLogStatus = "复制失败：${e.message}") }
+            }
+        }
+    }
+
+    /** 清除所有崩溃日志 */
+    fun clearAllCrashLogs() {
+        val count = CrashReporter.clearCrashes(context)
+        _uiState.update { it.copy(crashLogFileNames = emptyList(), crashDialogContent = "", crashLogStatus = "已清除 $count 条") }
+    }
+
+    /** 仅清空 UI 上的状态提示和详情文本（不删除实际文件） */
+    fun dismissCrashStatus() {
+        _uiState.update { it.copy(crashLogStatus = "") }
+    }
+
+    /** 简单脱敏：用 *** 替换 JWT、token 参数、Authorization 头 */
+    private fun sanitizeCrashContent(content: String): String {
+        var s = content
+        s = Regex("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b").replace(s, "***.***.***")
+        s = Regex("(?i)(authorization|cookie|x-api-key)\\s*:\\s*[^\n]+").replace(s, "$1: ***")
+        s = Regex("(?i)((?:access_token|refresh_token|token)=)[^&\\s\"']+").replace(s, "$1***")
+        return s
     }
 
     fun exportLogs() {

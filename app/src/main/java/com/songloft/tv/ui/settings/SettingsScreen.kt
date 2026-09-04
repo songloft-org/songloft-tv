@@ -400,16 +400,42 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        var showCrashLogDialog by remember { mutableStateOf(false) }
         SettingsSection("日志") {
-            SettingsItem(
-                label = "导出日志",
-                value = uiState.logExportStatus.ifEmpty { "导出运行日志用于排查问题" },
-                onClick = { viewModel.exportLogs() }
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsItem(
+                    label = "导出日志",
+                    value = uiState.logExportStatus.ifEmpty { "导出运行日志用于排查问题" },
+                    onClick = { viewModel.exportLogs() }
+                )
+                SettingsItem(
+                    label = "崩溃日志",
+                    value = if (uiState.crashLogFileNames.isNotEmpty()) "${uiState.crashLogFileNames.size} 条记录"
+                        else if (uiState.crashLogStatus.isNotEmpty()) uiState.crashLogStatus
+                        else "暂无闪退记录",
+                    onClick = {
+                        if (uiState.crashLogFileNames.isEmpty()) {
+                            viewModel.openCrashLogDialog()
+                        }
+                        showCrashLogDialog = true
+                    }
+                )
+            }
         }
         val logDownloadUrl by viewModel.logDownloadUrl.collectAsStateWithLifecycle()
         logDownloadUrl?.let { url ->
             LogQrDialog(url = url, onDismiss = { viewModel.stopLogDownload() })
+        }
+
+        if (showCrashLogDialog && uiState.crashLogFileNames.isNotEmpty()) {
+            CrashLogDialog(
+                viewModel = viewModel,
+                state = uiState,
+                onDismiss = {
+                    showCrashLogDialog = false
+                    viewModel.dismissCrashStatus()
+                }
+            )
         }
 
         Spacer(Modifier.height(24.dp))
@@ -1363,4 +1389,185 @@ private fun LogQrDialog(url: String, onDismiss: () -> Unit) {
     }
 
     LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
+}
+
+@Composable
+private fun CrashLogDialog(
+    viewModel: SettingsViewModel,
+    state: SettingsUiState,
+    onDismiss: () -> Unit
+) {
+    val fileNames = state.crashLogFileNames
+    var selectedFileIndex by remember { mutableIntStateOf(0) }
+    val focusRequesters = remember(fileNames.size) { List(fileNames.size) { FocusRequester() } }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .fillMaxHeight(0.85f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 36.dp, vertical = 24.dp)
+        ) {
+            // 标题 + 文件列表
+            Text(
+                text = "崩溃日志",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(8.dp))
+
+            if (fileNames.isEmpty()) {
+                Text(
+                    text = "暂无闪退记录",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(vertical = 16.dp)
+                )
+            } else {
+                // 可滚动的文件列表
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(4.dp)
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(fileNames.size) { index ->
+                            CrashLogItem(
+                                fileName = fileNames[index],
+                                isSelected = index == selectedFileIndex,
+                                onClick = {
+                                    selectedFileIndex = index
+                                    viewModel.selectCrashLog(index)
+                                },
+                                focusRequester = focusRequesters[index]
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 崩溃内容展示区
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = state.crashDialogContent.ifEmpty { "← 点击上方日志查看详情" },
+                    fontSize = 11.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 底部操作按钮行
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ActionButton("导出", MaterialTheme.colorScheme.primary) {
+                    viewModel.exportLatestCrash()
+                }
+                ActionButton("复制", MaterialTheme.colorScheme.primary) {
+                    viewModel.copyLatestCrash()
+                }
+                DangerTextButton(
+                    label = "清空",
+                    onClick = {
+                        viewModel.clearAllCrashLogs()
+                        onDismiss()
+                    }
+                )
+                Spacer(Modifier.weight(1f))
+                CloseButton(onDismiss)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (focusRequesters.isNotEmpty()) runCatching { focusRequesters[0].requestFocus() }
+    }
+}
+
+@Composable
+private fun CrashLogItem(
+    fileName: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Text(
+        text = fileName,
+        fontSize = 14.sp,
+        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
+            .then(if (isFocused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)) else Modifier)
+            .focusRequester(focusRequester)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun ActionButton(label: String, color: Color, onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    Text(
+        text = label,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold,
+        color = color,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) color.copy(alpha = 0.1f) else Color.Transparent)
+            .then(if (isFocused) Modifier.border(2.dp, color, RoundedCornerShape(8.dp)) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun CloseButton(onClick: () -> Unit) {
+    var isFocused by remember { mutableStateOf(false) }
+    Text(
+        text = "关闭",
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
+            .then(if (isFocused) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)) else Modifier)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    )
 }
