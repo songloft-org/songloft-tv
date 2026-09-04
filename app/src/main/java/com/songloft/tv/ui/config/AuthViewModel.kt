@@ -67,6 +67,9 @@ class AuthViewModel @Inject constructor(
     private val _pairingPin = MutableStateFlow("")
     val pairingPin: StateFlow<String> = _pairingPin.asStateFlow()
 
+    private val _rememberMe = MutableStateFlow(false)
+    val rememberMe: StateFlow<Boolean> = _rememberMe.asStateFlow()
+
     val useCustomKeyboard: StateFlow<Boolean> = dataStore.useCustomKeyboard
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
@@ -86,11 +89,12 @@ class AuthViewModel @Inject constructor(
         for (port in CONFIG_PORTS) {
             val server = ConfigWebServer(
                 port,
-                onConfig = { serverUrl, username, password ->
+                onConfig = { serverUrl, username, password, rememberMe ->
                     viewModelScope.launch {
                         _serverUrl.value = serverUrl
                         _username.value = username
                         _password.value = password
+                        _rememberMe.value = rememberMe
                         login()
                     }
                 },
@@ -162,6 +166,11 @@ class AuthViewModel @Inject constructor(
             val storedUrl = dataStore.serverUrl.first()
             if (!storedUrl.isNullOrEmpty()) {
                 _serverUrl.value = storedUrl
+                if (dataStore.rememberMe.first()) {
+                    // 勾选了记住登录：回填账号和密码
+                    _username.value = "" // 用户名不在 DataStore 中，从 API 响应获取
+                    _password.value = dataStore.password.first() ?: ""
+                }
                 tryAutoLogin()
             } else {
                 _authState.value = AuthState.NotConfigured
@@ -205,7 +214,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             var lastError: Throwable? = null
             for (candidate in candidateUrls(url)) {
-                val result = authRepository.login(candidate, username, password)
+                val result = authRepository.login(candidate, username, password, _rememberMe.value)
                 if (result.isSuccess) {
                     _serverUrl.value = candidate
                     _isLoggingIn.value = false
@@ -230,11 +239,19 @@ class AuthViewModel @Inject constructor(
     }
 
     fun resetToConfig() {
-        _authState.value = AuthState.NotConfigured
-        _serverUrl.value = ""
-        _username.value = ""
-        _password.value = ""
-        _error.value = null
+        viewModelScope.launch {
+            authRepository.clearAllAuth()
+            _authState.value = AuthState.NotConfigured
+            _serverUrl.value = ""
+            _username.value = ""
+            _password.value = ""
+            _rememberMe.value = false
+            _error.value = null
+        }
+    }
+
+    fun setRememberMe(checked: Boolean) {
+        _rememberMe.value = checked
     }
 
     companion object {

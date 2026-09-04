@@ -315,8 +315,7 @@ class SettingsViewModel @Inject constructor(
 
     fun clearServerConfig() {
         viewModelScope.launch {
-            dataStore.setServerUrl("")
-            dataStore.clearTokens()
+            dataStore.clearAllAuth()
             ApiClient.authInterceptor.accessToken = null
             ApiClient.authInterceptor.refreshToken = null
         }

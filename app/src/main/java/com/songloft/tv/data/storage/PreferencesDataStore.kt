@@ -62,6 +62,8 @@ class PreferencesDataStore @Inject constructor(
         private val KEY_MAPPING_TOP = intPreferencesKey("key_mapping_top")
         private val KEY_MAPPING_BOTTOM = intPreferencesKey("key_mapping_bottom")
         private val KEY_MAPPING_ACCOMPANIMENT = intPreferencesKey("key_mapping_accompaniment")
+        private val REMEMBER_ME = booleanPreferencesKey("remember_me")
+        private val PASSWORD = stringPreferencesKey("password")
     }
 
     val serverUrl: Flow<String?> = context.dataStore.data.map { it[SERVER_URL] }
@@ -114,6 +116,9 @@ class PreferencesDataStore @Inject constructor(
             accompaniment = it[KEY_MAPPING_ACCOMPANIMENT] ?: 0
         )
     }
+    // 记住登录开关（默认关闭）/ 密码存储（仅勾选时写入）
+    val rememberMe: Flow<Boolean> = context.dataStore.data.map { it[REMEMBER_ME] ?: false }
+    val password: Flow<String?> = context.dataStore.data.map { it[PASSWORD] }
 
     suspend fun setServerUrl(url: String) {
         context.dataStore.edit { it[SERVER_URL] = url }
@@ -229,10 +234,14 @@ class PreferencesDataStore @Inject constructor(
         }
     }
 
-    suspend fun setTokens(access: String, refresh: String) {
+    suspend fun setTokens(access: String, refresh: String, rememberMe: Boolean = false, password: String? = null) {
         context.dataStore.edit {
             it[ACCESS_TOKEN] = access
             it[REFRESH_TOKEN] = refresh
+            it[REMEMBER_ME] = rememberMe
+            if (password != null) {
+                it[PASSWORD] = password
+            }
         }
     }
 
@@ -240,6 +249,26 @@ class PreferencesDataStore @Inject constructor(
         context.dataStore.edit {
             it.remove(ACCESS_TOKEN)
             it.remove(REFRESH_TOKEN)
+            it.remove(PASSWORD)
+        }
+    }
+
+    /** 清除「记住登录」开关及关联的账号、密码 */
+    suspend fun clearRememberMe() {
+        context.dataStore.edit {
+            it.remove(REMEMBER_ME)
+            it.remove(PASSWORD)
+        }
+    }
+
+    /** 完全清除认证相关数据（含服务器地址、记住登录、密码） */
+    suspend fun clearAllAuth() {
+        context.dataStore.edit {
+            it.remove(SERVER_URL)
+            it.remove(ACCESS_TOKEN)
+            it.remove(REFRESH_TOKEN)
+            it.remove(REMEMBER_ME)
+            it.remove(PASSWORD)
         }
     }
 }

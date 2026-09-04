@@ -25,7 +25,7 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    suspend fun login(serverUrl: String, username: String, password: String): Result<Boolean> =
+    suspend fun login(serverUrl: String, username: String, password: String, rememberMe: Boolean = false): Result<Boolean> =
         withContext(Dispatchers.IO) {
             runCatching {
                 ApiClient.initialize(serverUrl)
@@ -36,7 +36,7 @@ class AuthRepository @Inject constructor(
                 ApiClient.authInterceptor.accessToken = response.accessToken
                 ApiClient.authInterceptor.refreshToken = response.refreshToken
                 dataStore.setServerUrl(serverUrl)
-                dataStore.setTokens(response.accessToken, response.refreshToken)
+                dataStore.setTokens(response.accessToken, response.refreshToken, rememberMe, if (rememberMe) password else null)
                 true
             }.mapLoginFailure()
         }
@@ -102,6 +102,13 @@ class AuthRepository @Inject constructor(
 
     suspend fun logout() {
         dataStore.clearTokens()
+        ApiClient.authInterceptor.accessToken = null
+        ApiClient.authInterceptor.refreshToken = null
+    }
+
+    /** 清除服务器配置与登录状态（设置页「清除配置」） */
+    suspend fun clearAllAuth() {
+        dataStore.clearAllAuth()
         ApiClient.authInterceptor.accessToken = null
         ApiClient.authInterceptor.refreshToken = null
     }
