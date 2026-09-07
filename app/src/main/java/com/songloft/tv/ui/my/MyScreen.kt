@@ -5,12 +5,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -26,11 +32,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.songloft.tv.data.api.StatsHistoryRecord
 import com.songloft.tv.data.model.Song
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusDirection
 import com.songloft.tv.ui.components.SongItemFavoriteMode
 import com.songloft.tv.ui.components.SongListItem
 import com.songloft.tv.ui.navigation.DefaultFocusEffect
@@ -38,6 +48,7 @@ import com.songloft.tv.ui.navigation.ListBackToTopHandler
 import com.songloft.tv.ui.navigation.RestoreFocusEffect
 import com.songloft.tv.ui.navigation.rememberScreenFocusRestorer
 import com.songloft.tv.ui.navigation.restorableFocus
+import com.songloft.tv.ui.stats.formatTime
 import com.songloft.tv.ui.theme.SelectedFocusBorder
 
 @Composable
@@ -51,6 +62,7 @@ fun MyScreen(
     val topFocus = remember { FocusRequester() }
     val settingsFocus = remember { FocusRequester() }
     val favoriteRadioFocus = remember { FocusRequester() }
+    val playbackHistoryFocus = remember { FocusRequester() }
     val restorer = rememberScreenFocusRestorer()
     var topFocusHasFocus by remember { mutableStateOf(false) }
 
@@ -91,30 +103,67 @@ fun MyScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TabChip("收藏歌曲", uiState.selectedTab == 0, focusRequester = topFocus, onFocusChanged = { topFocusHasFocus = it }) { viewModel.selectTab(0) }
             TabChip("收藏电台", uiState.selectedTab == 1, focusRequester = favoriteRadioFocus) { viewModel.selectTab(1) }
+            TabChip("播放历史", uiState.selectedTab == 2, focusRequester = playbackHistoryFocus) { viewModel.selectTab(2) }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        val songs = if (uiState.selectedTab == 0) uiState.favoriteSongs else uiState.favoriteRadios
-
         when {
             uiState.isLoading -> CenterHint("加载中...")
             uiState.error != null -> CenterHint("加载失败：${uiState.error}")
-            songs.isEmpty() -> CenterHint(if (uiState.selectedTab == 0) "暂无收藏歌曲" else "暂无收藏电台")
-            else -> {
+            uiState.selectedTab == 0 && uiState.favoriteSongs.isEmpty() -> CenterHint("暂无收藏歌曲")
+            uiState.selectedTab == 1 && uiState.favoriteRadios.isEmpty() -> CenterHint("暂无收藏电台")
+            uiState.selectedTab == 2 && uiState.playbackHistory.isEmpty() -> CenterHint("暂无播放记录，开始听歌吧")
+            uiState.selectedTab == 0 -> {
                 LazyColumn(
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(vertical = 6.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    itemsIndexed(songs) { index, song ->
+                    itemsIndexed(uiState.favoriteSongs) { index, song ->
                         SongListItem(
                             song = song,
-                            onClick = { onSongClick(songs, index) },
+                            onClick = { onSongClick(uiState.favoriteSongs, index) },
                             favoriteMode = SongItemFavoriteMode.REMOVE,
                             onFavoriteClick = { viewModel.removeFavorite(song) },
                             showAlbumInSubtitle = false
+                        )
+                    }
+                }
+            }
+            uiState.selectedTab == 1 -> {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    itemsIndexed(uiState.favoriteRadios) { index, song ->
+                        SongListItem(
+                            song = song,
+                            onClick = { onSongClick(uiState.favoriteRadios, index) },
+                            favoriteMode = SongItemFavoriteMode.REMOVE,
+                            onFavoriteClick = { viewModel.removeFavorite(song) },
+                            showAlbumInSubtitle = false
+                        )
+                    }
+                }
+            }
+            uiState.selectedTab == 2 -> {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    itemsIndexed(uiState.playbackHistory) { _, record ->
+                        val isFav = viewModel.isHistoryRecordFavorite(record)
+                        PlaybackHistoryItem(
+                            record = record,
+                            isFavorite = isFav,
+                            onClick = { onSongClick(listOf(viewModel.recordToSong(record)), 0) },
+                            onFavoriteClick = { viewModel.toggleFavoriteFromHistory(record) }
                         )
                     }
                 }
@@ -138,6 +187,118 @@ private fun ColumnScope.CenterHint(text: String) {
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
         )
+    }
+}
+
+@Composable
+private fun PlaybackHistoryItem(
+    record: StatsHistoryRecord,
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    onFavoriteClick: () -> Unit
+) {
+    var rowActive by remember { mutableStateOf(false) }
+    var mainFocused by remember { mutableStateOf(false) }
+    var favFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val scale by animateFloatAsState(
+        targetValue = if (rowActive) 1.03f else 1.0f,
+        animationSpec = tween(150),
+        label = "historyItemScale"
+    )
+
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .fillMaxWidth()
+            .focusGroup()
+            .onFocusChanged { rowActive = it.hasFocus }
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (rowActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.3f)
+            )
+            .then(
+                if (rowActive) Modifier.border(
+                    1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp)
+                ) else Modifier
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .onFocusChanged { mainFocused = it.isFocused }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onClick() }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${record.artist} — ${record.title}",
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = formatTime(record.timestamp),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (mainFocused) MaterialTheme.colorScheme.primary else Color.Transparent
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = "播放",
+                    tint = if (mainFocused) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        val filled = isFavorite
+        Box(
+            modifier = Modifier
+                .padding(end = 10.dp)
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(
+                    if (favFocused) MaterialTheme.colorScheme.primary else Color.Transparent
+                )
+                .onFocusChanged { favFocused = it.isFocused }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    focusManager.moveFocus(FocusDirection.Up)
+                    onFavoriteClick()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (filled) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = if (filled) "取消收藏" else "收藏",
+                tint = when {
+                    favFocused -> MaterialTheme.colorScheme.onPrimary
+                    filled -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                },
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 

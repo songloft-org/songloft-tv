@@ -854,7 +854,7 @@ fun formatDuration(sec: Double): String {
     }
 }
 
-fun formatTime(timestamp: Long): String {
+internal fun formatTime(timestamp: Long): String {
     val cal = Calendar.getInstance()
     cal.timeInMillis = timestamp
 
