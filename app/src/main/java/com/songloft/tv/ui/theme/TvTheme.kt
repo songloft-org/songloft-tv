@@ -13,8 +13,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.CompositionLocalProvider
 import com.songloft.tv.data.storage.PreferencesDataStore
 import com.songloft.tv.data.storage.dataStore
+import com.songloft.tv.util.FontScalePreset
+import com.songloft.tv.util.LocalFontScale
 import kotlinx.coroutines.flow.map
 
 private fun lightScheme(seed: Color) = lightColorScheme(
@@ -71,6 +74,10 @@ fun TvTheme(
     val themeColorName by remember {
         context.dataStore.data.map { it[PreferencesDataStore.THEME_COLOR] ?: ThemeSeeds.DEFAULT_NAME }
     }.collectAsState(initial = ThemeSeeds.DEFAULT_NAME)
+    val fontSizeScaleIndex by remember {
+        context.dataStore.data.map { it[PreferencesDataStore.FONT_SIZE_SCALE] ?: 1 }
+    }.collectAsState(initial = 1)
+    val fontScale = FontScalePreset.scaleForIndex(fontSizeScaleIndex)
 
     val seed = seedColorFor(themeColorName)
     val colorScheme = when (themeMode) {
@@ -84,6 +91,10 @@ fun TvTheme(
         colorScheme = colorScheme,
         typography = androidx.compose.material3.Typography(),
         shapes = TvShapes,
-        content = content
+        content = {
+            CompositionLocalProvider(LocalFontScale provides fontScale) {
+                content()
+            }
+        }
     )
 }

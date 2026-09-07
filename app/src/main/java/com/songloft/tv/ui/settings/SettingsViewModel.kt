@@ -60,6 +60,7 @@ data class SettingsUiState(
     val crashLogFileNames: List<String> = emptyList(),
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30,
+    val fontSizeScale: Int = 1,
     val playCacheMb: Int = 0,
     val playCacheUsageBytes: Long = 0,
     val keyMapping: KeyMapping = KeyMapping(),
@@ -143,6 +144,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.lyricFontSize.collect { size ->
                 _uiState.value = _uiState.value.copy(lyricFontSize = size)
+            }
+        }
+        viewModelScope.launch {
+            dataStore.fontSizeScale.collect { scale ->
+                _uiState.value = _uiState.value.copy(fontSizeScale = scale)
             }
         }
         viewModelScope.launch {
@@ -257,6 +263,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setLyricFontSize(size: Int) {
         viewModelScope.launch { dataStore.setLyricFontSize(size) }
+    }
+
+    fun setFontSizeScale(scale: Int) {
+        viewModelScope.launch { dataStore.setFontSizeScale(scale) }
     }
 
     fun setPlayCacheMb(mb: Int) {

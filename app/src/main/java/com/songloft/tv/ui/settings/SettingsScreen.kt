@@ -21,7 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.songloft.tv.util.AppText as Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +53,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.songloft.tv.domain.KeyMapping
+import com.songloft.tv.util.LocalFontScale
+import com.songloft.tv.util.FontScalePreset
+import com.songloft.tv.util.AppText
+import com.songloft.tv.util.applyFontScale
 import com.songloft.tv.domain.KeyMappingManager
 import com.songloft.tv.domain.MappingTarget
 import com.songloft.tv.ui.components.HelpDialog
@@ -396,6 +400,19 @@ fun SettingsScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                     .padding(vertical = 16.dp)
             )
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        SettingsSection("字体大小（全局文字、标题等缩放）") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val scale = uiState.fontSizeScale
+                FontScalePreset.Values.forEachIndexed { index, label ->
+                    OptionChip(label, scale == index) { viewModel.setFontSizeScale(index) }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            FontSizePreview(uiState.fontSizeScale)
         }
 
         Spacer(Modifier.height(24.dp))
@@ -1316,6 +1333,42 @@ private fun OptionChip(label: String, isSelected: Boolean, modifier: Modifier = 
             .clickable { onClick() }
             .padding(horizontal = 20.dp, vertical = 10.dp)
     )
+}
+
+@Composable
+private fun FontSizePreview(fontSizeScale: Int) {
+    val fontScale = remember(fontSizeScale) { FontScalePreset.scaleForIndex(fontSizeScale) }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(vertical = 16.dp, horizontal = 24.dp)
+    ) {
+        Column {
+            AppText(
+                text = "字体大小预览",
+                fontSize = (18f * fontScale).sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(6.dp))
+            AppText(
+                text = "春风得意马蹄疾，一日看尽长安花。",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = androidx.compose.ui.text.TextStyle(lineHeight = 20.sp)
+            )
+            Spacer(Modifier.height(4.dp))
+            AppText(
+                text = "床前明月光，疑是地上霜。举头望明月，低头思故乡。",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                maxLines = 2
+            )
+        }
+    }
 }
 
 @Composable

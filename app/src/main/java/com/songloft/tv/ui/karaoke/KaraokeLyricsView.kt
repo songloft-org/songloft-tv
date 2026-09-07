@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Text
+import com.songloft.tv.util.AppText as Text
 import com.songloft.tv.data.model.LyricLine
 import com.songloft.tv.ui.theme.PlayerColors
 import kotlinx.coroutines.delay

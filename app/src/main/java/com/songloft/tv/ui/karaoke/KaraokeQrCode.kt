@@ -31,7 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.songloft.tv.ui.components.generateQrBitmap
 import com.songloft.tv.ui.theme.PlayerColors
-import androidx.compose.material3.Text
+import com.songloft.tv.util.AppText as Text
 import androidx.compose.runtime.LaunchedEffect
 
 /**
