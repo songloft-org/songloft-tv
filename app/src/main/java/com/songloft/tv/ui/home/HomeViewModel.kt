@@ -7,6 +7,7 @@ import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.FacetItem
 import com.songloft.tv.data.model.Playlist
 import com.songloft.tv.data.repository.AllSongsCache
+import com.songloft.tv.data.repository.PlaylistCoverRepository
 import com.songloft.tv.data.repository.PlaylistRepository
 import com.songloft.tv.data.repository.SongRepository
 import com.songloft.tv.data.repository.StatsRange
@@ -47,17 +48,32 @@ class HomeViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val statsRepository: StatsRepository,
     private val allSongsCache: AllSongsCache,
+    private val playlistCoverRepository: PlaylistCoverRepository,
     private val preferencesDataStore: PreferencesDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    /** 无自定义封面的歌单：随机抽出的歌曲封面组合，应用级缓存，跨页面一致 */
+    val playlistCovers: StateFlow<Map<Long, List<String>>> = playlistCoverRepository.covers
+
+    fun ensurePlaylistCovers(playlistId: Long) = playlistCoverRepository.ensureLoaded(playlistId)
+
+    /** 虚拟「全部曲库」卡片副标题：数量跟随应用级全库缓存实时更新（已剔除电台） */
+    private val _allSongsSubtitle = MutableStateFlow(AllSongsPlaylist.subtitle(0, true))
+    val allSongsSubtitle: StateFlow<String> = _allSongsSubtitle.asStateFlow()
+
     init {
         loadDashboard()
         // 进入首页就开始后台预载全库音乐：用户浏览榜单/歌单时加载已完成，点开虚拟歌单即秒开。
         // 加载跑在 @Singleton 缓存的作用域里，不随页面销毁而中断（幂等，歌单页也会调一次）
         allSongsCache.ensureLoading()
+        viewModelScope.launch {
+            allSongsCache.state.collect { state ->
+                _allSongsSubtitle.value = AllSongsPlaylist.subtitle(state.songs.size, state.isLoading)
+            }
+        }
         // 置顶歌单变化后自动刷新首页前两排（跳过首次发射，避免与上面的加载重复）
         viewModelScope.launch {
             preferencesDataStore.pinnedPlaylistIds.drop(1).collect { loadDashboard() }

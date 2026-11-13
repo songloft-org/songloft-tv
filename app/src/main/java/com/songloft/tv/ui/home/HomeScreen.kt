@@ -24,9 +24,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import com.songloft.tv.util.AppText as Text
 import androidx.compose.runtime.Composable
@@ -54,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.components.PinBadge
+import com.songloft.tv.ui.components.PlaylistCover
 import com.songloft.tv.data.api.StatsSummary
 import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.FacetItem
@@ -81,6 +79,8 @@ fun HomeScreen(
     onStatsClick: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val playlistCovers by viewModel.playlistCovers.collectAsStateWithLifecycle()
+    val allSongsSubtitle by viewModel.allSongsSubtitle.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val topFocus = remember { FocusRequester() }
     val restorer = rememberScreenFocusRestorer()
@@ -183,6 +183,9 @@ fun HomeScreen(
             PlaylistSection(
                 playlists = uiState.playlists,
                 pinnedIds = uiState.pinnedIds,
+                covers = playlistCovers,
+                allSongsSubtitle = allSongsSubtitle,
+                onNeedCovers = viewModel::ensurePlaylistCovers,
                 onPlaylistClick = { id ->
                     restorer.record("playlist:$id")
                     onPlaylistClick(id)
@@ -289,6 +292,9 @@ private fun RowScope.StatCard(label: String, value: String) {
 private fun PlaylistSection(
     playlists: List<Playlist>,
     pinnedIds: Set<Long>,
+    covers: Map<Long, List<String>>,
+    allSongsSubtitle: String,
+    onNeedCovers: (Long) -> Unit,
     onPlaylistClick: (Long) -> Unit,
     onManagePlaylists: () -> Unit,
     restorer: ScreenFocusRestorer,
@@ -339,6 +345,9 @@ private fun PlaylistSection(
                                 playlist = playlist,
                                 isVirtual = isVirtual,
                                 isPinned = isVirtual || playlist.id in pinnedIds,
+                                allSongsSubtitle = allSongsSubtitle,
+                                songCovers = covers[playlist.id].orEmpty(),
+                                onNeedSongCovers = onNeedCovers,
                                 onClick = { onPlaylistClick(playlist.id) },
                                 modifier = Modifier
                                     .weight(1f)
@@ -360,6 +369,9 @@ private fun PlaylistCard(
     playlist: Playlist,
     isPinned: Boolean = false,
     isVirtual: Boolean = false,
+    allSongsSubtitle: String = "",
+    songCovers: List<String> = emptyList(),
+    onNeedSongCovers: (Long) -> Unit = {},
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -393,26 +405,15 @@ private fun PlaylistCard(
                 .aspectRatio(1f)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(
-                    if (isVirtual) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    else MaterialTheme.colorScheme.surfaceVariant
-                ),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            if (isVirtual) {
-                Icon(
-                    imageVector = Icons.Rounded.LibraryMusic,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(56.dp)
-                )
-            } else {
-                CoverImage(
-                    url = playlist.coverUrl,
-                    contentDescription = playlist.name,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            PlaylistCover(
+                playlist = playlist,
+                modifier = Modifier.fillMaxSize(),
+                songCovers = songCovers,
+                onNeedSongCovers = onNeedSongCovers
+            )
             if (isPinned) {
                 PinBadge(
                     label = if (isVirtual) "默认" else "置顶",
@@ -435,7 +436,7 @@ private fun PlaylistCard(
         )
 
         Text(
-            text = if (isVirtual) AllSongsPlaylist.SUBTITLE else "${playlist.songCount} 首",
+            text = if (isVirtual) allSongsSubtitle else "${playlist.songCount} 首",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )

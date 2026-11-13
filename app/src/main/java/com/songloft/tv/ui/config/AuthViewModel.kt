@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.songloft.tv.data.config.ConfigWebServer
 import com.songloft.tv.data.repository.AllSongsCache
 import com.songloft.tv.data.repository.AuthRepository
+import com.songloft.tv.data.repository.PlaylistCoverRepository
 import com.songloft.tv.data.storage.PreferencesDataStore
 import com.songloft.tv.util.LogStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -39,6 +40,7 @@ class AuthViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository,
     private val allSongsCache: AllSongsCache,
+    private val playlistCoverRepository: PlaylistCoverRepository,
     private val dataStore: PreferencesDataStore
 ) : ViewModel() {
 
@@ -238,6 +240,7 @@ class AuthViewModel @Inject constructor(
             authRepository.logout()
             // 账号/服务器变更后旧曲库缓存必须作废，避免把上一个服务器的歌曲送进播放队列
             allSongsCache.invalidate()
+            playlistCoverRepository.invalidate()
             _authState.value = AuthState.NotConfigured
         }
     }
@@ -246,6 +249,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.clearAllAuth()
             allSongsCache.invalidate()
+            playlistCoverRepository.invalidate()
             _authState.value = AuthState.NotConfigured
             _serverUrl.value = ""
             _username.value = ""

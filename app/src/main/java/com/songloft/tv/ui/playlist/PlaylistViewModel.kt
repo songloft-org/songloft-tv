@@ -7,6 +7,7 @@ import com.songloft.tv.data.model.Playlist
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.data.repository.AllSongsCache
 import com.songloft.tv.data.repository.FavoriteRepository
+import com.songloft.tv.data.repository.PlaylistCoverRepository
 import com.songloft.tv.data.repository.PlaylistRepository
 import com.songloft.tv.data.storage.PreferencesDataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -49,11 +50,21 @@ class PlaylistViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val favoriteRepository: FavoriteRepository,
     private val allSongsCache: AllSongsCache,
+    private val playlistCoverRepository: PlaylistCoverRepository,
     private val preferencesDataStore: PreferencesDataStore
 ) : ViewModel() {
 
     private val _listState = MutableStateFlow(PlaylistListUiState())
     val listState: StateFlow<PlaylistListUiState> = _listState.asStateFlow()
+
+    /** 无自定义封面的歌单：随机抽出的歌曲封面组合，应用级缓存，跨页面一致 */
+    val playlistCovers: StateFlow<Map<Long, List<String>>> = playlistCoverRepository.covers
+
+    fun ensurePlaylistCovers(playlistId: Long) = playlistCoverRepository.ensureLoaded(playlistId)
+
+    /** 虚拟「全部曲库」卡片副标题：数量跟随应用级全库缓存实时更新（已剔除电台） */
+    private val _allSongsSubtitle = MutableStateFlow(AllSongsPlaylist.subtitle(0, true))
+    val allSongsSubtitle: StateFlow<String> = _allSongsSubtitle.asStateFlow()
 
     private val _detailState = MutableStateFlow(PlaylistDetailUiState())
     val detailState: StateFlow<PlaylistDetailUiState> = _detailState.asStateFlow()
@@ -72,6 +83,11 @@ class PlaylistViewModel @Inject constructor(
     init {
         loadPlaylists()
         allSongsCache.ensureLoading()
+        viewModelScope.launch {
+            allSongsCache.state.collect { state ->
+                _allSongsSubtitle.value = AllSongsPlaylist.subtitle(state.songs.size, state.isLoading)
+            }
+        }
         // 上限由 8 调整为 7 后，把老配置里多出的置顶项裁掉（下标 0 最新，保留前 7 个）
         viewModelScope.launch {
             val pinned = preferencesDataStore.pinnedPlaylistIds.first()
@@ -236,6 +252,7 @@ class PlaylistViewModel @Inject constructor(
     /** 歌单页手动刷新：歌单列表刷新 + 全库缓存重建（心跳自动刷新不重建，避免每 30s 拉全库） */
     fun refreshAllSongs() {
         allSongsCache.refresh()
+        playlistCoverRepository.invalidate()
         refreshPlaylists()
     }
 

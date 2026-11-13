@@ -79,6 +79,7 @@ baseUrl 为 `{serverUrl}/api/v1/`，全部 suspend 方法：
 - **PlaylistRepository**：歌单列表/详情/歌曲（详情页按 500 首/页循环拉取直至全量，修复原先只显示前 50 首的问题）；置顶由用户自定义（长按歌单置顶/取消置顶，上限 7 个，DataStore 持久化）。
 - **SongRepository**：`getSongs`、`getFacets`、`getSongLyric`（歌词全空抛异常）、`reportPlayed`、`getLibraryStats`（分页拉全库统计，上限 5000 首）。
 - **AllSongsCache**：虚拟「全部曲库」的应用级进程内缓存，后台并发分页预载全库音乐并逐批发 `StateFlow`；`ensureLoading()` 幂等、`invalidate()` 用 generation 隔离旧任务、`refresh()` 重建。详见 §4.6。
+- **PlaylistCoverRepository**：无自定义封面歌单的「歌曲封面组合」来源。按歌单 id 做**确定性随机**（采样分页 offset、抽取张数、洗牌均以 id 为种子）：先取 `playlists/{id}/songs` 第 1 页拿 total，再按种子随机跳 2 页（50 首/页，最多 3 次请求/歌单，4 路信号量限流）汇总去重候选，随机抽 3~4 张。结果写入 `StateFlow` 并**锁定**，重进页面/重组不再变化；切服务器/登出/手动刷新 `invalidate()` 才重算（种子固定，歌单未变时结果仍一致）。首页请求失败不写缓存，避免网络抖动把「无封面」锁死。虚拟歌单 `-1` 跟随 `AllSongsCache` 采样，首批到达即锁定。详见 §4.5。
 - **StatsRepository**：播放统计插件（`jsplugin/stats`）数据源，`getSummary(range)`（range 由 `StatsRange` 枚举换算 from/to 时间戳：全部/今日/本周[周一起]/本月）、`getTrends(days)`、`getHourly()`、`getHistory(limit, offset)`；任一接口失败返回 Result.failure，UI 层据此回退。
 - **UpdateRepository**：GitHub Release 更新检查 + APK 下载，见 §5。
 
@@ -292,6 +293,7 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 ### 4.5 通用组件与主题
 
 - **CoverImage**：`UrlHelper.resolve` + Coil AsyncImage，加载中/失败/无 URL 显示音符占位；Coil 的 OkHttpClient 在 `SongloftTvApp`（ImageLoaderFactory）中挂 AuthInterceptor（封面接口需 JWT）。
+- **PlaylistCover**（`ui/components/PlaylistCover.kt`）：歌单封面**三级降级**，首页置顶区 / 歌单网格 / 详情页共用。① 歌单有 `cover_url` → 正常加载（加载失败也继续降级，不留空白）；② 无自定义封面 → 用 `PlaylistCoverRepository` 从歌单内歌曲随机抽 **3~4 张**封面拼贴（4 张 2×2 田字格、3 张左大右两小、2 张左右、1 张全幅，最后叠 10% 主色蒙版统一色调，保证角标可读）；③ 歌曲也都没有封面 → 内置 `BuiltinLibraryCover`（随主题主色的渐变 + 黑胶唱片环 + 音符，纯代码绘制、无图片资源、任意尺寸清晰）。拼贴中单张图加载失败时该格回退为内置封面的紧凑版。只有真正需要降级时才通过 `onNeedSongCovers` 按需采样，有封面的歌单不打额外请求；详情页也订阅同一份应用级缓存，因此与列表页显示的是同一组封面。
 - **FloatingPlayerBar**：右下角迷你条，未聚焦为 96dp 圆形（仅封面），聚焦展开 300dp 露出标题；播放中封面 10s/圈旋转。
 - **TvFocusable / D-Pad 规范**：统一"焦点 = 缩放 1.05-1.1x + primary 边框"模式；`Modifier.tvFocusable()` 是抽象，多数页面内联实现同一模式；无自定义 FocusOrder，依赖 Compose 默认焦点搜索。
 - **选中型组件规范**（设置/首页/我的/歌单/统计等页 chip 统一）：选中 = primary 实心填充 + ✓；聚焦 = 缩放 1.1x(120ms tween) + 3dp 描边（选中项用 `SelectedFocusBorder` 白边保证高对比，未选中项用 primary 边）。
@@ -304,8 +306,12 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 
 - **虚拟歌单** `AllSongsPlaylist`（`data/model/Playlist.kt`）：`id = -1`（与服务端自增 id 区分）、
   `type = normal`。它不是服务端歌单，不写 DataStore 置顶列表，也不参与长按置顶/取消置顶。
-  首页「置顶歌单」区与歌单 Tab「全部 / 普通」页签的第一格固定显示，带「默认」角标与曲库图标，
-  副标题「仅音乐 · 全部歌曲」；服务端歌单接口加载中/失败/为空时该入口依然可见。
+  首页「置顶歌单」区与歌单 Tab「全部 / 普通」页签的第一格固定显示，带「默认」角标，
+  封面与其它歌单共用 §4.5 的三级降级链（曲库封面作为最后兜底），
+  副标题显示「仅歌曲 N 首」，N 取自 `AllSongsCache.state.songs.size`（已剔除电台的音乐数），
+  由首页/歌单页两个 ViewModel 各自收集成 `allSongsSubtitle` 供卡片共用（`AllSongsPlaylist.subtitle()` 统一格式化）；
+  后台分页仍在载入时用「仅歌曲 N+ 首」标注是已载入的下限，首批未到显示「仅歌曲 · 统计中…」，
+  加载完成后变为精确数量。服务端歌单接口加载中/失败/为空时该入口依然可见。
   **「电台」页签不显示**（虚拟歌单是纯音乐列表，避免混入非电台入口）。
   首页保持 8 格两行（虚拟 1 格 + 用户置顶/普通歌单 7 格），用户置顶上限同步为 7。
 - **加载（应用级后台预载 + 缓存）**：`AllSongsCache`（`data/repository/`，`@Singleton`）

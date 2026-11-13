@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.songloft.tv.ui.components.CoverImage
+import com.songloft.tv.ui.components.PlaylistCover
 import com.songloft.tv.ui.components.SongItemFavoriteMode
 import com.songloft.tv.ui.components.SongListItem
 import com.songloft.tv.data.model.AllSongsPlaylist
@@ -53,6 +53,7 @@ fun PlaylistDetailScreen(
 ) {
     val uiState by viewModel.detailState.collectAsStateWithLifecycle()
     val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
+    val playlistCovers by viewModel.playlistCovers.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val topFocus = remember { FocusRequester() }
     val playAllFocus = remember { FocusRequester() }
@@ -135,10 +136,11 @@ fun PlaylistDetailScreen(
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
-                            CoverImage(
-                                url = playlist.coverUrl,
-                                contentDescription = playlist.name,
-                                modifier = Modifier.fillMaxSize()
+                            PlaylistCover(
+                                playlist = playlist,
+                                modifier = Modifier.fillMaxSize(),
+                                songCovers = playlistCovers[playlistId].orEmpty(),
+                                onNeedSongCovers = viewModel::ensurePlaylistCovers
                             )
                         }
 

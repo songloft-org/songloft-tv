@@ -26,8 +26,15 @@ object AllSongsPlaylist {
     const val ID: Long = -1L
     const val NAME = "全部曲库"
     const val DESCRIPTION = "曲库内全部音乐（不含电台），自动同步新增歌曲"
-    /** 卡片副标题：曲库总数需进详情页才能确定，列表页不显示数字 */
-    const val SUBTITLE = "仅音乐 · 全部歌曲"
+    /**
+     * 卡片副标题：数量取自 AllSongsCache 已剔除电台的音乐总数，首页与歌单页共用同一份。
+     * 后台分页仍在载入时用「+」标注这只是已载入的下限，避免把中途数量当成最终值。
+     */
+    fun subtitle(songCount: Int, isLoading: Boolean): String = when {
+        songCount == 0 -> if (isLoading) "仅歌曲 · 统计中…" else "仅歌曲 0 首"
+        isLoading -> "仅歌曲 $songCount+ 首"
+        else -> "仅歌曲 $songCount 首"
+    }
 
     fun isAllSongs(id: Long): Boolean = id == ID
 

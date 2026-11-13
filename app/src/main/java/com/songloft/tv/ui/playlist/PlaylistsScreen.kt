@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,8 +40,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
-import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.components.PinBadge
+import com.songloft.tv.ui.components.PlaylistCover
 import com.songloft.tv.ui.components.tvFocusable
 import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.Playlist
@@ -63,6 +62,8 @@ fun PlaylistsScreen(
 ) {
     val uiState by viewModel.listState.collectAsStateWithLifecycle()
     val pinnedIds by viewModel.pinnedIds.collectAsStateWithLifecycle()
+    val playlistCovers by viewModel.playlistCovers.collectAsStateWithLifecycle()
+    val allSongsSubtitle by viewModel.allSongsSubtitle.collectAsStateWithLifecycle()
     // 「全部曲库」是客户端虚拟歌单，固定第一个：不受用户置顶与服务端歌单接口加载失败影响。
     // 但它是纯音乐列表，切到「电台」页签时不显示，避免电台页混入非电台入口。
     val displayPlaylists = remember(uiState.playlists, pinnedIds, uiState.selectedType) {
@@ -145,6 +146,9 @@ fun PlaylistsScreen(
                             playlist = playlist,
                             isVirtual = isVirtual,
                             isPinned = playlist.id in pinnedIds,
+                            allSongsSubtitle = allSongsSubtitle,
+                            songCovers = playlistCovers[playlist.id].orEmpty(),
+                            onNeedSongCovers = viewModel::ensurePlaylistCovers,
                             onClick = {
                                 restorer.record("playlist:${playlist.id}")
                                 onPlaylistClick(playlist.id)
@@ -311,6 +315,9 @@ private fun PlaylistGridCard(
     playlist: Playlist,
     isPinned: Boolean = false,
     isVirtual: Boolean = false,
+    allSongsSubtitle: String = "",
+    songCovers: List<String> = emptyList(),
+    onNeedSongCovers: (Long) -> Unit = {},
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -407,26 +414,15 @@ private fun PlaylistGridCard(
                 .aspectRatio(1f)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(
-                    if (isVirtual) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    else MaterialTheme.colorScheme.surfaceVariant
-                ),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            if (isVirtual) {
-                Icon(
-                    imageVector = Icons.Rounded.LibraryMusic,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(56.dp)
-                )
-            } else {
-                CoverImage(
-                    url = playlist.coverUrl,
-                    contentDescription = playlist.name,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            PlaylistCover(
+                playlist = playlist,
+                modifier = Modifier.fillMaxSize(),
+                songCovers = songCovers,
+                onNeedSongCovers = onNeedSongCovers
+            )
             if (isPinned || isVirtual) {
                 PinBadge(
                     label = if (isVirtual) "默认" else "置顶",
@@ -446,7 +442,7 @@ private fun PlaylistGridCard(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = if (isVirtual) AllSongsPlaylist.SUBTITLE else "${playlist.songCount} 首",
+            text = if (isVirtual) allSongsSubtitle else "${playlist.songCount} 首",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )
