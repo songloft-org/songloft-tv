@@ -68,6 +68,7 @@ baseUrl 为 `{serverUrl}/api/v1/`，全部 suspend 方法：
 - `Song`：id/type("local"/"radio")/title/artist/album/duration(秒)/url/coverUrl/isVideo/fileSize/`tracks: List<Track>?`；`hasMultiTrack` = tracks>1（双音轨）。
 - `Track`：id/name/url/quality。多文件音轨每轨独立 URL；内嵌音轨 id 为 `embedded:<groupIndex>`。
 - `Playlist`：id/name/description/coverUrl/songCount/type("normal"/"radio")/labels；`isBuiltIn`（labels 含 `built_in`，收藏歌单）、`isHidden`。
+- `AllSongsPlaylist`：`id = -1` 的客户端虚拟「全部曲库（仅音乐）」歌单常量，非服务端数据，详见 §4.6。
 - `LyricLine`：time/text/`words: List<LyricWord>?`（逐字）/translation/romaji。
 - `FacetItem`：value/count/coverUrl。
 
@@ -75,8 +76,9 @@ baseUrl 为 `{serverUrl}/api/v1/`，全部 suspend 方法：
 
 - **AuthRepository**：`login`（初始化 ApiClient/UrlHelper + 存 token）、`tryAutoLogin`、`logout`；init 中注册 token 刷新回调持久化。
 - **FavoriteRepository**：收藏基于服务端 **`built_in` 标签歌单**实现——`type=normal` 歌单收藏歌曲、`type=radio` 歌单收藏电台；内部缓存 type→playlistId 映射；`getFavorites` 拉取所有内置歌单歌曲合并。
-- **PlaylistRepository**：歌单列表/详情/歌曲（详情页按 500 首/页循环拉取直至全量，修复原先只显示前 50 首的问题）；置顶由用户自定义（长按歌单置顶/取消置顶，上限 8 个，DataStore 持久化）。
+- **PlaylistRepository**：歌单列表/详情/歌曲（详情页按 500 首/页循环拉取直至全量，修复原先只显示前 50 首的问题）；置顶由用户自定义（长按歌单置顶/取消置顶，上限 7 个，DataStore 持久化）。
 - **SongRepository**：`getSongs`、`getFacets`、`getSongLyric`（歌词全空抛异常）、`reportPlayed`、`getLibraryStats`（分页拉全库统计，上限 5000 首）。
+- **AllSongsCache**：虚拟「全部曲库」的应用级进程内缓存，后台并发分页预载全库音乐并逐批发 `StateFlow`；`ensureLoading()` 幂等、`invalidate()` 用 generation 隔离旧任务、`refresh()` 重建。详见 §4.6。
 - **StatsRepository**：播放统计插件（`jsplugin/stats`）数据源，`getSummary(range)`（range 由 `StatsRange` 枚举换算 from/to 时间戳：全部/今日/本周[周一起]/本月）、`getTrends(days)`、`getHourly()`、`getHistory(limit, offset)`；任一接口失败返回 Result.failure，UI 层据此回退。
 - **UpdateRepository**：GitHub Release 更新检查 + APK 下载，见 §5。
 
@@ -123,7 +125,7 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 
 `@Singleton`，通过 `withController(action)` 懒建 `MediaController` 连接 MusicService。暴露 `state: StateFlow<PlaybackState>`（queue/currentIndex/currentSong/currentTrack/embeddedTracks/isPlaying/isBuffering/duration/playMode/睡眠定时器状态）。
 
-- **队列**：`play(queue, index, contextType?, contextKey?)` 先同步更新 state（UI 提前展示），再 `setMediaItems` + `prepare` + `play`；context 随 state 保存，仅在 `play` 事件上报时携带（歌单详情页传 `playlist`+歌单 ID，分面页传 `artist/album/year`+取值，搜索/收藏等扁平列表不传）。
+- **队列**：`play(queue, index, contextType?, contextKey?)` 先同步更新 state（UI 提前展示），再 `setMediaItems` + `prepare` + `play`；`appendToQueue(songs)` 按 id 去重批量追加到队尾（全库后台续载补齐用，见 §4.6）；context 随 state 保存，仅在 `play` 事件上报时携带（歌单详情页传 `playlist`+歌单 ID，分面页传 `artist/album/year`+取值，搜索/收藏等扁平列表不传；虚拟「全部曲库」按扁平列表处理，同样不传）。
 - **播放控制**：`togglePlay()` 切换播放/暂停；`pause()` 强制暂停（K 歌退出时使用）。
 - **播放模式**：`enum PlayMode { ORDER, LOOP, SINGLE, RANDOM }`，映射到 ExoPlayer 的 repeatMode + shuffleModeEnabled；`cyclePlayMode()` 轮转。
 - **双音轨切换 `switchTrack(track)`**，两种机制：
@@ -245,12 +247,12 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 
 | 页面 | 实现要点 |
 |---|---|
-| 首页 Home | 5 个 async 并发拉统计/歌手/专辑/年份/歌单；统计卡 ×4、歌单 4 列网格（≤8，用户置顶在前）、歌手/专辑两列（各 6）、年份胶囊行（8）；最下方「年份速览」动态切换：仅预取统计插件 summary（全部区间，不带参数），成功则展示「播放统计」概览（全部/今日/本周/本月 Tab，切换其他区间时按需请求该区间 summary，右上角查看全部进统计页），失败则回退年份速览；概览区「本月」Tab 与「查看全部」用 `focusProperties` 双向焦点跳转 |
+| 首页 Home | 5 个 async 并发拉统计/歌手/专辑/年份/歌单；统计卡 ×4、歌单 4 列网格（8 格 = 虚拟「全部曲库」1 格 + 用户置顶/普通歌单 7 格，见 §4.6）、歌手/专辑两列（各 6）、年份胶囊行（8）；最下方「年份速览」动态切换：仅预取统计插件 summary（全部区间，不带参数），成功则展示「播放统计」概览（全部/今日/本周/本月 Tab，切换其他区间时按需请求该区间 summary，右上角查看全部进统计页），失败则回退年份速览；概览区「本月」Tab 与「查看全部」用 `focusProperties` 双向焦点跳转 |
 | 统计 Stats | 播放统计插件（jsplugin/stats）子界面：全部/今日/本周/本月时间 Tab、概览卡 ×4（播放次数/听歌时长/不同歌曲/不同艺术家）、艺术家排行 top4、歌曲排行 top3、听歌趋势（7/30 天柱状图）、专辑排行 top3、时段分布、来源分布 top3、歌曲类型 top3、最近播放 top3；各卡片标题栏带「刷新」按钮 |
 | 搜索 Search | 300ms 防抖搜索；**无关键词时直接分页浏览曲库**（首次进入即展示，滚动接近底部懒加载下一页，列表顶部显示"共 N 首"）；自定义 `TvKeyboard`（左侧 8×4 字母方阵+功能键、右侧 4×4 数字/符号方阵可切换 + 一次性 Shift，特殊键用字符串协议"←退格/清空/确定"）；热门标签取 artist facet 前 10；拼音/首字母候选取 `songs/names`（title+artist 去重全量）经 `PinyinMatcher` 索引，输入 ≥2 个字母时匹配候选（旧服务器无该接口时回退 artist facet 值） |
 | 分类 FacetList | 全部歌手/专辑/年份，3 列网格 → 点击进 SongFilter |
 | 筛选 FilteredSongs | 按 artist/album/year 拉 500 首列表 |
-| 歌单 Playlists | 全部/普通/电台 FilterChip 过滤，4 列网格；长按弹窗确认置顶/取消置顶（上限 8 个，置顶排最前；满 8 个时确认后自动顶掉最早置顶）；详情页有"播放全部/随机播放" |
+| 歌单 Playlists | 第一项固定为虚拟「全部曲库（仅音乐）」默认置顶歌单（带「默认」角标、不可长按取消、服务端接口失败时仍可见；「电台」页签不显示，见 §4.6）；全部/普通/电台 FilterChip 过滤，4 列网格；长按弹窗确认置顶/取消置顶（上限 7 个，置顶排最前；达上限时确认后自动顶掉最早置顶）；详情页有"播放全部/随机播放" |
 | 我的 My | 收藏按 `song.type` partition 为歌曲/电台两个 Tab；右上角进设置 |
 | 设置 Settings | 见 4.3 |
 | 配置 AuthSetup | 见 4.4 |
@@ -294,6 +296,36 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 - **TvFocusable / D-Pad 规范**：统一"焦点 = 缩放 1.05-1.1x + primary 边框"模式；`Modifier.tvFocusable()` 是抽象，多数页面内联实现同一模式；无自定义 FocusOrder，依赖 Compose 默认焦点搜索。
 - **选中型组件规范**（设置/首页/我的/歌单/统计等页 chip 统一）：选中 = primary 实心填充 + ✓；聚焦 = 缩放 1.1x(120ms tween) + 3dp 描边（选中项用 `SelectedFocusBorder` 白边保证高对比，未选中项用 primary 边）。
 - **主题 TvTheme**：种子色由 `ThemeSeeds` + `seedColorFor(name)` 按 DataStore `theme_color` 取值（默认黛青蓝 `0xFF415F91`），动态构造 Light/Dark ColorScheme；composable 内直接订阅 `PreferencesDataStore.THEME_MODE` / `THEME_COLOR` 两个 key，切换即全局换肤。模式 3 为**暗夜模式**（`nightScheme`，冷蓝紫暗调的 darkColorScheme 变体，强调沉浸感）。播放器深色 UI 的固定色集中定义在 `PlayerColors`（不随主题色调变化），语义白描边抽为 `SelectedFocusBorder`。
+
+## 4.6 「全部曲库（仅音乐）」虚拟歌单
+
+解决的问题：无关键词的曲库浏览（搜索页）只按 50 首分页加载，点歌时播放队列仅含已加载的那一页；
+此前只有进入某个歌单，才能用「播放全部」把整份歌曲列表送进队列。
+
+- **虚拟歌单** `AllSongsPlaylist`（`data/model/Playlist.kt`）：`id = -1`（与服务端自增 id 区分）、
+  `type = normal`。它不是服务端歌单，不写 DataStore 置顶列表，也不参与长按置顶/取消置顶。
+  首页「置顶歌单」区与歌单 Tab「全部 / 普通」页签的第一格固定显示，带「默认」角标与曲库图标，
+  副标题「仅音乐 · 全部歌曲」；服务端歌单接口加载中/失败/为空时该入口依然可见。
+  **「电台」页签不显示**（虚拟歌单是纯音乐列表，避免混入非电台入口）。
+  首页保持 8 格两行（虚拟 1 格 + 用户置顶/普通歌单 7 格），用户置顶上限同步为 7。
+- **加载（应用级后台预载 + 缓存）**：`AllSongsCache`（`data/repository/`，`@Singleton`）
+  在 `HomeViewModel.init` / `PlaylistViewModel.init` 调 `ensureLoading()` 幂等启动，
+  生命周期不绑定页面；先取第 1 页拿到 `total`，剩余页按 **4 路并发分批**拉取
+  （500 首/页，单页失败重试一次），按 offset 升序合并后逐批追加进 `StateFlow`。
+  详情页只是订阅缓存：命中即秒开，退出页面不中断加载，二次进入直接复用。
+  「仅音乐」= 过滤 `type=radio`，保留本地/远程歌曲（含 MV 视频歌曲，播放时按 `isVideo` 走视频模式）；
+  如需连视频一起排除，改 `filterNot` 条件即可。分页游标按服务端**原始**条数递增
+  （客户端过滤不影响服务端分页，否则电台较多时会漏掉后面的音乐），
+  20 000 首安全阀防止异常 `total` 导致死循环。切服务器/登出走 `invalidate()`，
+  歌单页手动「刷新」走 `refresh()`（30s 心跳不重建缓存，避免反复拉全库）。
+- **播放（不等全量）**：缓存命中时「播放全部 / 随机播放」队列即整库音乐。
+  仍在后台载入时按钮不禁用，文案改为「播放已载入 / 随机播放已载入」，副标题显示
+  「已载入 N 首 · 曲库约 M 首 · 后台载入中…」（M 为含电台的服务端原始总数，仅作进度参考）；
+  点播时 `PlaylistDetailScreen` 通过 `onAllSongsEarlyPlay` 通知 `MainActivity` 建立补齐会话，
+  缓存每追加一批就由 `PlayerController.appendToQueue()` 按 id 去重补进当前播放队列，
+  因此**先播已载入部分、最终队列仍是全库**。用户中途切到别的队列或缓存被 invalidate
+  时（校验队列首曲 id + generation）会话自动终止，不会误往别的队列插歌。
+  播放上报按扁平列表惯例不带 context_type/context_key。
 
 ## 5. 应用更新（`data/repository/UpdateRepository.kt`）
 

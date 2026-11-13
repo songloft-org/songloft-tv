@@ -20,6 +20,7 @@ import com.songloft.tv.util.AppText as Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
@@ -36,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.components.SongItemFavoriteMode
 import com.songloft.tv.ui.components.SongListItem
+import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.Song
 import com.songloft.tv.ui.navigation.ListBackToTopHandler
 
@@ -45,6 +47,8 @@ fun PlaylistDetailScreen(
     viewModel: PlaylistViewModel = hiltViewModel(),
     onSongClick: (List<Song>, Int) -> Unit = { _, _ -> },
     onShufflePlay: (List<Song>) -> Unit = {},
+    /** 全库缓存尚未加载完就开播：MainActivity 据此在后台续载时把新歌追加进当前播放队列 */
+    onAllSongsEarlyPlay: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
     val uiState by viewModel.detailState.collectAsStateWithLifecycle()
@@ -55,6 +59,24 @@ fun PlaylistDetailScreen(
     var backButtonHasFocus by remember { mutableStateOf(false) }
     // 电台歌单无「播放全部/随机播放」按钮，返回键 ↓ 直接落到列表第一首
     val isRadioPlaylist = uiState.playlist?.type == "radio"
+    // 虚拟「全部曲库」由后台缓存持续追加：只要有歌就能立刻播，不必等全量载入完成；
+    // 未载入完时按钮文案明确为「已载入」，MainActivity 会在后续分页到达时补齐播放队列
+    val isAllSongs = AllSongsPlaylist.isAllSongs(playlistId)
+    val canPlayAll = uiState.songs.isNotEmpty()
+    val markEarlyPlay = {
+        if (isAllSongs && uiState.isLoadingAll) onAllSongsEarlyPlay()
+    }
+    // 首批还没回来时按钮显示「载入中…」；已有部分歌曲则明确告知播的是「已载入」部分
+    val playAllLabel = when {
+        isAllSongs && uiState.isLoadingAll && uiState.songs.isEmpty() -> "载入中…"
+        uiState.isLoadingAll -> "播放已载入"
+        else -> "播放全部"
+    }
+    val shuffleLabel = when {
+        isAllSongs && uiState.isLoadingAll && uiState.songs.isEmpty() -> "载入中…"
+        uiState.isLoadingAll -> "随机播放已载入"
+        else -> "随机播放"
+    }
 
     ListBackToTopHandler(listState, topFocus, topFocusHasFocus = backButtonHasFocus)
 
@@ -131,7 +153,16 @@ fun PlaylistDetailScreen(
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = "${maxOf(uiState.total, uiState.songs.size)} 首歌曲",
+                                text = if (isAllSongs && uiState.isLoadingAll) {
+                                    // serverTotal 是服务端原始总数（含电台），仅作进度分母参考
+                                    if (uiState.allServerTotal > 0) {
+                                        "已载入 ${uiState.songs.size} 首 · 曲库约 ${uiState.allServerTotal} 首 · 后台载入中…"
+                                    } else {
+                                        "已载入 ${uiState.songs.size} 首 · 后台载入中…"
+                                    }
+                                } else {
+                                    "${maxOf(uiState.total, uiState.songs.size)} 首歌曲"
+                                },
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
@@ -151,17 +182,25 @@ fun PlaylistDetailScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 ActionButton(
                                     icon = Icons.Rounded.PlayArrow,
-                                    label = "播放全部",
+                                    label = playAllLabel,
+                                    enabled = canPlayAll,
                                     onClick = {
-                                        if (uiState.songs.isNotEmpty()) onSongClick(uiState.songs, 0)
+                                        if (uiState.songs.isNotEmpty()) {
+                                            markEarlyPlay()
+                                            onSongClick(uiState.songs, 0)
+                                        }
                                     },
                                     focusRequester = playAllFocus
                                 )
                                 ActionButton(
                                     icon = Icons.Rounded.Shuffle,
-                                    label = "随机播放",
+                                    label = shuffleLabel,
+                                    enabled = canPlayAll,
                                     onClick = {
-                                        if (uiState.songs.isNotEmpty()) onShufflePlay(uiState.songs)
+                                        if (uiState.songs.isNotEmpty()) {
+                                            markEarlyPlay()
+                                            onShufflePlay(uiState.songs)
+                                        }
                                     }
                                 )
                             }
@@ -178,7 +217,10 @@ fun PlaylistDetailScreen(
                         itemsIndexed(uiState.songs) { index, song ->
                             SongListItem(
                                 song = song,
-                                onClick = { onSongClick(uiState.songs, index) },
+                                onClick = {
+                                    markEarlyPlay()
+                                    onSongClick(uiState.songs, index)
+                                },
                                 favoriteMode = SongItemFavoriteMode.TOGGLE,
                                 isFavorite = song.id in favoriteIds,
                                 onFavoriteClick = { viewModel.toggleFavorite(song) },
@@ -247,6 +289,7 @@ private fun ActionButton(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -272,7 +315,9 @@ private fun ActionButton(
                 ) else Modifier
             )
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onClick() }
+            .alpha(if (enabled) 1f else 0.5f)
+            // 保持 clickable 可聚焦，避免载入期间返回键的 down 焦点链断掉
+            .clickable { if (enabled) onClick() }
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)

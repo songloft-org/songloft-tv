@@ -2,8 +2,10 @@ package com.songloft.tv.ui.playlist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.Playlist
 import com.songloft.tv.data.model.Song
+import com.songloft.tv.data.repository.AllSongsCache
 import com.songloft.tv.data.repository.FavoriteRepository
 import com.songloft.tv.data.repository.PlaylistRepository
 import com.songloft.tv.data.storage.PreferencesDataStore
@@ -34,6 +36,10 @@ data class PlaylistDetailUiState(
     val playlist: Playlist? = null,
     val songs: List<Song> = emptyList(),
     val total: Int = 0,
+    /** 虚拟「全部曲库」专用：后台分页仍在载入，此时点播放会先播已载入部分再自动补齐队列 */
+    val isLoadingAll: Boolean = false,
+    /** 服务端原始总数（含电台），仅用于载入进度显示 */
+    val allServerTotal: Int = 0,
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -42,6 +48,7 @@ data class PlaylistDetailUiState(
 class PlaylistViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val favoriteRepository: FavoriteRepository,
+    private val allSongsCache: AllSongsCache,
     private val preferencesDataStore: PreferencesDataStore
 ) : ViewModel() {
 
@@ -64,6 +71,14 @@ class PlaylistViewModel @Inject constructor(
 
     init {
         loadPlaylists()
+        allSongsCache.ensureLoading()
+        // 上限由 8 调整为 7 后，把老配置里多出的置顶项裁掉（下标 0 最新，保留前 7 个）
+        viewModelScope.launch {
+            val pinned = preferencesDataStore.pinnedPlaylistIds.first()
+            if (pinned.size > MAX_PINNED) {
+                preferencesDataStore.setPinnedPlaylistIds(pinned.take(MAX_PINNED))
+            }
+        }
     }
 
     fun toggleFavorite(song: Song) {
@@ -72,6 +87,8 @@ class PlaylistViewModel @Inject constructor(
 
     /** 长按歌单：已置顶则取消，未置顶则插入最前；超过上限自动替换最旧的置顶（界面层已弹窗确认） */
     fun togglePin(id: Long) {
+        // 虚拟歌单是固定置顶，不参与用户置顶列表
+        if (AllSongsPlaylist.isAllSongs(id)) return
         viewModelScope.launch {
             val current = preferencesDataStore.pinnedPlaylistIds.first()
             android.util.Log.d("PlaylistPin", "[togglePin] id=$id current=$current")
@@ -183,6 +200,24 @@ class PlaylistViewModel @Inject constructor(
         // 详情页歌曲需显示收藏状态，懒加载收藏 id（首次请求，之后走缓存），与歌曲列表并发加载
         viewModelScope.launch { favoriteRepository.ensureFavoriteIdsLoaded() }
         detailJob = viewModelScope.launch {
+            if (AllSongsPlaylist.isAllSongs(id)) {
+                // 虚拟歌单没有服务端详情：订阅应用级后台缓存，命中即秒开；
+                // 详情页退出只取消订阅，缓存加载任务在 @Singleton 中继续跑，下次进来直接复用
+                allSongsCache.ensureLoading()
+                allSongsCache.state.collect { cache ->
+                    _detailState.value = PlaylistDetailUiState(
+                        playlist = AllSongsPlaylist.playlist,
+                        songs = cache.songs,
+                        total = cache.songs.size,
+                        allServerTotal = cache.serverTotal,
+                        isLoading = false,
+                        isLoadingAll = cache.isLoading,
+                        // 部分分页失败时已有歌曲仍可用，只在完全没加载到数据时报错
+                        error = cache.error?.takeIf { cache.songs.isEmpty() }
+                    )
+                }
+                return@launch
+            }
             playlistRepository.getPlaylistDetail(id).fold(
                 onSuccess = { playlist ->
                     _detailState.value = _detailState.value.copy(playlist = playlist)
@@ -196,6 +231,12 @@ class PlaylistViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    /** 歌单页手动刷新：歌单列表刷新 + 全库缓存重建（心跳自动刷新不重建，避免每 30s 拉全库） */
+    fun refreshAllSongs() {
+        allSongsCache.refresh()
+        refreshPlaylists()
     }
 
     private suspend fun loadAllSongs(id: Long) {
@@ -223,8 +264,8 @@ class PlaylistViewModel @Inject constructor(
     companion object {
         const val SONGS_PAGE_SIZE = 500
         const val PLAYLIST_PAGE_SIZE = 100
-        /** 用户置顶歌单上限 */
-        const val MAX_PINNED = 8
+        /** 用户置顶歌单上限：首页固定 1 格给虚拟「全部曲库」，剩余 7 格与这里一一对应 */
+        const val MAX_PINNED = 7
     }
 }
 

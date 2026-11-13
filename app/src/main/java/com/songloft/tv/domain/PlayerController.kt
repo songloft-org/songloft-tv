@@ -997,6 +997,21 @@ class PlayerController @Inject constructor(
         Log.d(TAG, "点歌成功：${song.title}，队列 ${queue.size} 首")
     }
 
+    /**
+     * 批量追加到播放队列末尾（供「全部曲库」后台续载补齐），按歌曲 id 去重。
+     * 用户此时可能已切到别的播放队列，调用方需自行校验会话；这里只保证不重复插歌。
+     */
+    fun appendToQueue(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        val seen = _state.value.queue.mapTo(mutableSetOf()) { it.id }
+        val fresh = ArrayList<Song>()
+        songs.forEach { song -> if (seen.add(song.id)) fresh.add(song) }
+        if (fresh.isEmpty()) return
+        _state.update { it.copy(queue = it.queue + fresh) }
+        withController { c -> c.addMediaItems(fresh.map { buildMediaItem(it) }) }
+        Log.d(TAG, "全库续载补齐队列：新增 ${fresh.size} 首，队列共 ${_state.value.queue.size} 首")
+    }
+
     /** 置顶：移动到当前播放曲的下一首（下一个播放） */
     fun moveToTop(index: Int) {
         val queue = _state.value.queue

@@ -12,6 +12,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -49,7 +50,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.Song
+import com.songloft.tv.data.repository.AllSongsCache
 import com.songloft.tv.data.storage.PreferencesDataStore
 import com.songloft.tv.data.storage.ResumeSnapshotStore
 import com.songloft.tv.domain.KeyMappingManager
@@ -101,7 +104,16 @@ class MainActivity : ComponentActivity() {
     lateinit var resumeSnapshotStore: ResumeSnapshotStore
 
     @Inject
+    lateinit var allSongsCache: AllSongsCache
+
+    @Inject
     lateinit var keyMappingManager: KeyMappingManager
+
+    /** 全库缓存未加载完就开播时置位，openPlayer 里据此建立「续载补齐队列」会话 */
+    private var pendingAllSongsEarlyPlay = false
+    /** 记录该会话播放队列的第一首歌 id，用于在用户切走队列时终止自动补齐 */
+    private var allSongsAppendSessionFirstId: Long? = null
+    private var allSongsAppendSessionGeneration = -1L
 
     /** 全局「返回顶部/返回底部」回调桥，由当前组合中的页面注册滚动实现 */
     val pageScrollBridge = PageScrollBridge()
@@ -157,10 +169,26 @@ class MainActivity : ComponentActivity() {
                             onOpenPlayer = {
                                 startActivity(Intent(this@MainActivity, PlayerActivity::class.java))
                             },
-                            onExit = { exitApp() }
+                            onExit = { exitApp() },
+                            onAllSongsEarlyPlay = { pendingAllSongsEarlyPlay = true }
                         )
                     }
                 }
+            }
+        }
+
+        // 全库后台续载：缓存每追加一批，就把新歌补进之前由虚拟歌单启动的播放队列。
+        // 播放期间切到别的队列、或缓存被 invalidate（切服务器/刷新）时自动终止补齐。
+        lifecycleScope.launch {
+            allSongsCache.state.collect { cache ->
+                val firstId = allSongsAppendSessionFirstId ?: return@collect
+                val queue = playerController.getQueue()
+                if (cache.generation != allSongsAppendSessionGeneration || queue.firstOrNull()?.id != firstId) {
+                    allSongsAppendSessionFirstId = null
+                    return@collect
+                }
+                playerController.appendToQueue(cache.songs)
+                if (!cache.isLoading) allSongsAppendSessionFirstId = null
             }
         }
 
@@ -197,6 +225,14 @@ class MainActivity : ComponentActivity() {
         contextKey: String? = null
     ) {
         playerController.play(songs, index, contextType, contextKey)
+        if (pendingAllSongsEarlyPlay) {
+            // 这次播放只包含当时已载入的部分，后台分页到达后由 onCreate 的收集器补齐队列
+            allSongsAppendSessionFirstId = playerController.getQueue().firstOrNull()?.id
+            allSongsAppendSessionGeneration = allSongsCache.state.value.generation
+        } else {
+            allSongsAppendSessionFirstId = null
+        }
+        pendingAllSongsEarlyPlay = false
         startActivity(Intent(this, PlayerActivity::class.java))
     }
 
@@ -222,7 +258,8 @@ fun MainApp(
     onPlaySongs: (List<Song>, Int, String?, String?) -> Unit,
     onShufflePlay: (List<Song>, String?, String?) -> Unit,
     onOpenPlayer: () -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onAllSongsEarlyPlay: () -> Unit = {}
 ) {
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.authState.collectAsStateWithLifecycle()
@@ -230,7 +267,7 @@ fun MainApp(
     when (authState) {
         is AuthState.LoggedIn -> TvApp(
             preferencesDataStore, resumeSnapshotStore, authViewModel, playerController,
-            onPlaySongs, onShufflePlay, onOpenPlayer, onExit
+            onPlaySongs, onShufflePlay, onOpenPlayer, onExit, onAllSongsEarlyPlay
         )
         else -> AuthSetupScreen(authViewModel)
     }
@@ -245,7 +282,8 @@ fun TvApp(
     onPlaySongs: (List<Song>, Int, String?, String?) -> Unit,
     onShufflePlay: (List<Song>, String?, String?) -> Unit,
     onOpenPlayer: () -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onAllSongsEarlyPlay: () -> Unit = {}
 ) {
     val backStack = remember { mutableStateListOf<Screen>(Screen.Home) }
     val currentScreen = backStack.last()
@@ -378,11 +416,21 @@ fun TvApp(
                             is Screen.PlaylistDetail -> PlaylistDetailScreen(
                                 playlistId = screen.playlistId,
                                 onSongClick = { songs, index ->
-                                    onPlaySongs(songs, index, "playlist", screen.playlistId.toString())
+                                    if (AllSongsPlaylist.isAllSongs(screen.playlistId)) {
+                                        // 虚拟全库歌单是扁平列表，按搜索/收藏惯例不带播放上下文
+                                        onPlaySongs(songs, index, null, null)
+                                    } else {
+                                        onPlaySongs(songs, index, "playlist", screen.playlistId.toString())
+                                    }
                                 },
                                 onShufflePlay = { songs ->
-                                    onShufflePlay(songs, "playlist", screen.playlistId.toString())
+                                    if (AllSongsPlaylist.isAllSongs(screen.playlistId)) {
+                                        onShufflePlay(songs, null, null)
+                                    } else {
+                                        onShufflePlay(songs, "playlist", screen.playlistId.toString())
+                                    }
                                 },
+                                onAllSongsEarlyPlay = onAllSongsEarlyPlay,
                                 onBack = { goBack() }
                             )
                             Screen.My -> MyScreen(

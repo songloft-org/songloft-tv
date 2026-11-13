@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import android.util.Log
 import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.components.PinBadge
 import com.songloft.tv.ui.components.tvFocusable
+import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.Playlist
 import com.songloft.tv.ui.navigation.DefaultFocusEffect
 import com.songloft.tv.ui.navigation.ListBackToTopHandler
@@ -61,9 +63,11 @@ fun PlaylistsScreen(
 ) {
     val uiState by viewModel.listState.collectAsStateWithLifecycle()
     val pinnedIds by viewModel.pinnedIds.collectAsStateWithLifecycle()
-    // 置顶歌单提到最前（内置收藏已由 repository 固定最前，用户置顶紧随其后）
-    val displayPlaylists = remember(uiState.playlists, pinnedIds) {
-        orderWithPinnedFirst(uiState.playlists, pinnedIds)
+    // 「全部曲库」是客户端虚拟歌单，固定第一个：不受用户置顶与服务端歌单接口加载失败影响。
+    // 但它是纯音乐列表，切到「电台」页签时不显示，避免电台页混入非电台入口。
+    val displayPlaylists = remember(uiState.playlists, pinnedIds, uiState.selectedType) {
+        val head = if (uiState.selectedType == "radio") emptyList() else listOf(AllSongsPlaylist.playlist)
+        head + orderWithPinnedFirst(uiState.playlists, pinnedIds)
     }
     val listState = rememberLazyListState()
     val topFocus = remember { FocusRequester() }
@@ -117,74 +121,53 @@ fun PlaylistsScreen(
                 FilterChip("全部", uiState.selectedType == null, focusRequester = topFocus, onFocusChanged = { topFocusHasFocus = it }) { viewModel.loadPlaylists() }
                 FilterChip("普通", uiState.selectedType == "normal") { viewModel.loadPlaylists("normal") }
                 FilterChip("电台", uiState.selectedType == "radio") { viewModel.loadPlaylists("radio") }
-                RefreshButton(refreshing = uiState.isRefreshing) { viewModel.refreshPlaylists() }
+                RefreshButton(refreshing = uiState.isRefreshing) { viewModel.refreshAllSongs() }
             }
         }
 
         Spacer(Modifier.height(20.dp))
 
-        when {
-            uiState.isLoading -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("加载中...", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                }
-            }
-            uiState.error != null -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("加载失败: ${uiState.error}", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            uiState.playlists.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无歌单", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                }
-            }
-            else -> {
-                LazyColumn(
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(vertical = 16.dp)
+        // 列表始终渲染，状态提示作为末尾 item：虚拟歌单入口在加载/失败/空列表时都可见
+        LazyColumn(
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            val rows = displayPlaylists.chunked(4)
+            items(rows.size) { rowIndex ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val rows = displayPlaylists.chunked(4)
-                    items(rows.size) { rowIndex ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            rows[rowIndex].forEach { playlist ->
-                                PlaylistGridCard(
-                                    playlist = playlist,
-                                    isPinned = playlist.id in pinnedIds,
-                                    onClick = {
-                                        restorer.record("playlist:${playlist.id}")
-                                        onPlaylistClick(playlist.id)
-                                    },
-                                    onLongPress = { pendingPin = playlist },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .restorableFocus(restorer, "playlist:${playlist.id}")
-                                )
-                            }
-                            repeat(4 - rows[rowIndex].size) {
-                                Spacer(Modifier.weight(1f))
-                            }
-                        }
+                    rows[rowIndex].forEach { playlist ->
+                        val isVirtual = AllSongsPlaylist.isAllSongs(playlist.id)
+                        PlaylistGridCard(
+                            playlist = playlist,
+                            isVirtual = isVirtual,
+                            isPinned = playlist.id in pinnedIds,
+                            onClick = {
+                                restorer.record("playlist:${playlist.id}")
+                                onPlaylistClick(playlist.id)
+                            },
+                            // 虚拟歌单为系统默认置顶，长按不弹置顶/取消置顶确认框
+                            onLongPress = { if (!isVirtual) pendingPin = playlist },
+                            modifier = Modifier
+                                .weight(1f)
+                                .restorableFocus(restorer, "playlist:${playlist.id}")
+                        )
                     }
-                    if (uiState.isLoadingMore) {
-                        item {
-                            Box(
-                                Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "加载中...",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
+                    repeat(4 - rows[rowIndex].size) {
+                        Spacer(Modifier.weight(1f))
                     }
                 }
+            }
+            when {
+                uiState.isLoading -> item { StatusText("加载中...") }
+                uiState.error != null -> item { StatusText("歌单加载失败: ${uiState.error}", isError = true) }
+                uiState.playlists.isEmpty() -> item { StatusText("暂无其他歌单") }
+            }
+            if (uiState.isLoadingMore) {
+                item { StatusText("加载中...") }
             }
         }
     }
@@ -202,7 +185,7 @@ fun PlaylistsScreen(
                 onDismiss = { pendingPin = null }
             )
         } else {
-            // 已满 8 个时明确提示：新置顶会顶掉最早置顶的歌单
+            // 已达上限时明确提示：新置顶会顶掉最早置顶的歌单
             val oldestPinnedName = if (pinnedIds.size >= PlaylistViewModel.MAX_PINNED) {
                 pinnedIds.lastOrNull()
                     ?.let { id -> displayPlaylists.find { it.id == id }?.name }
@@ -221,6 +204,22 @@ fun PlaylistsScreen(
                 onDismiss = { pendingPin = null }
             )
         }
+    }
+}
+
+/** 歌单网格末尾的加载/错误/空态提示 */
+@Composable
+private fun StatusText(text: String, isError: Boolean = false) {
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 14.sp,
+            color = if (isError) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        )
     }
 }
 
@@ -311,6 +310,7 @@ private fun RefreshButton(
 private fun PlaylistGridCard(
     playlist: Playlist,
     isPinned: Boolean = false,
+    isVirtual: Boolean = false,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -407,16 +407,29 @@ private fun PlaylistGridCard(
                 .aspectRatio(1f)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(
+                    if (isVirtual) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ),
             contentAlignment = Alignment.Center
         ) {
-            CoverImage(
-                url = playlist.coverUrl,
-                contentDescription = playlist.name,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (isPinned) {
+            if (isVirtual) {
+                Icon(
+                    imageVector = Icons.Rounded.LibraryMusic,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(56.dp)
+                )
+            } else {
+                CoverImage(
+                    url = playlist.coverUrl,
+                    contentDescription = playlist.name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (isPinned || isVirtual) {
                 PinBadge(
+                    label = if (isVirtual) "默认" else "置顶",
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
@@ -433,7 +446,7 @@ private fun PlaylistGridCard(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "${playlist.songCount} 首",
+            text = if (isVirtual) AllSongsPlaylist.SUBTITLE else "${playlist.songCount} 首",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )

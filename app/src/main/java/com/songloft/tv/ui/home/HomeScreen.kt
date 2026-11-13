@@ -24,6 +24,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import com.songloft.tv.util.AppText as Text
 import androidx.compose.runtime.Composable
@@ -52,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.songloft.tv.ui.components.CoverImage
 import com.songloft.tv.ui.components.PinBadge
 import com.songloft.tv.data.api.StatsSummary
+import com.songloft.tv.data.model.AllSongsPlaylist
 import com.songloft.tv.data.model.FacetItem
 import com.songloft.tv.data.model.Playlist
 import com.songloft.tv.data.repository.StatsRange
@@ -330,9 +334,11 @@ private fun PlaylistSection(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         row.forEach { playlist ->
+                            val isVirtual = AllSongsPlaylist.isAllSongs(playlist.id)
                             PlaylistCard(
                                 playlist = playlist,
-                                isPinned = playlist.id in pinnedIds,
+                                isVirtual = isVirtual,
+                                isPinned = isVirtual || playlist.id in pinnedIds,
                                 onClick = { onPlaylistClick(playlist.id) },
                                 modifier = Modifier
                                     .weight(1f)
@@ -353,6 +359,7 @@ private fun PlaylistSection(
 private fun PlaylistCard(
     playlist: Playlist,
     isPinned: Boolean = false,
+    isVirtual: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -386,16 +393,29 @@ private fun PlaylistCard(
                 .aspectRatio(1f)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(
+                    if (isVirtual) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ),
             contentAlignment = Alignment.Center
         ) {
-            CoverImage(
-                url = playlist.coverUrl,
-                contentDescription = playlist.name,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (isVirtual) {
+                Icon(
+                    imageVector = Icons.Rounded.LibraryMusic,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(56.dp)
+                )
+            } else {
+                CoverImage(
+                    url = playlist.coverUrl,
+                    contentDescription = playlist.name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             if (isPinned) {
                 PinBadge(
+                    label = if (isVirtual) "默认" else "置顶",
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(6.dp)
@@ -415,7 +435,7 @@ private fun PlaylistCard(
         )
 
         Text(
-            text = "${playlist.songCount} 首",
+            text = if (isVirtual) AllSongsPlaylist.SUBTITLE else "${playlist.songCount} 首",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
         )
