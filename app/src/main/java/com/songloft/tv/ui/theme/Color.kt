@@ -40,9 +40,19 @@ val SelectedFocusBorder = Color.White
 object PlayerColors {
     // 背景
     val Background = Color.Black
+    /** 氛围背景的收口深色（横向渐变末端） */
+    val BackgroundDeep = Color(0xFF0C0F0E)
+    /** 无封面 / 提取失败时的氛围回退色（深灰绿） */
+    val AmbientFallback = Color(0xFF29312F)
     val Scrim = Color.Black.copy(alpha = 0.6f)
     val BarBackground = Color.Black.copy(alpha = 0.8f)
     val QueueBackground = Color(0xE6111827)
+
+    // 强调色（播放器固定视觉语言，不随主题色调变化）
+    /** 主强调：进度条、聚焦态、播放按钮、唱盘弧光 */
+    val Accent = Color(0xFFFF7657)
+    /** 次强调：唱盘弧光点缀 */
+    val Teal = Color(0xFF55C5A5)
 
     // 文字
     val TextPrimary = Color.White

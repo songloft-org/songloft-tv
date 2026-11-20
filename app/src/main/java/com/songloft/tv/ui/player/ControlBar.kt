@@ -1,24 +1,14 @@
 package com.songloft.tv.ui.player
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -26,7 +16,6 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -35,31 +24,17 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import com.songloft.tv.util.AppText as Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.songloft.tv.domain.PlayMode
 import com.songloft.tv.ui.theme.PlayerColors
+import com.songloft.tv.util.AppText as Text
+import androidx.compose.ui.focus.FocusRequester
 
 @Composable
 fun ControlBar(
@@ -82,108 +57,144 @@ fun ControlBar(
     soundButtonFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
+    val isRadio = uiState.currentSong?.type == "radio"
+    val progress = if (uiState.duration > 0) {
+        uiState.currentPosition.toFloat() / uiState.duration.toFloat()
+    } else 0f
+
     Column(
         modifier = modifier
-            .background(PlayerColors.BarBackground)
-            .padding(horizontal = 48.dp, vertical = 16.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0x99090807),
+                        Color(0xE6080807)
+                    )
+                )
+            )
+            .padding(start = 56.dp, end = 56.dp, top = 22.dp, bottom = 20.dp)
     ) {
-        val progress = if (uiState.duration > 0) {
-            uiState.currentPosition.toFloat() / uiState.duration.toFloat()
-        } else 0f
-
+        // 进度条（上方）+ 时间标签（下方），对齐参考项目
+        SeekBar(
+            progress = progress,
+            onSeekBy = { delta ->
+                val target = (uiState.currentPosition + delta)
+                    .coerceIn(0L, uiState.duration.coerceAtLeast(0L))
+                onSeek(target)
+            },
+            onSeekTo = { ratio ->
+                val target = (ratio * uiState.duration.toFloat())
+                    .toLong()
+                    .coerceIn(0L, uiState.duration.coerceAtLeast(0L))
+                onSeek(target)
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = formatTime(uiState.currentPosition),
-                fontSize = 12.sp,
-                color = PlayerColors.TextTertiary
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.72f)
             )
-
-            SeekBar(
-                progress = progress,
-                onSeekBy = { delta ->
-                    val target = (uiState.currentPosition + delta)
-                        .coerceIn(0L, uiState.duration.coerceAtLeast(0L))
-                    onSeek(target)
-                },
-                onSeekTo = { ratio ->
-                    val target = (ratio * uiState.duration.toFloat())
-                        .toLong()
-                        .coerceIn(0L, uiState.duration.coerceAtLeast(0L))
-                    onSeek(target)
-                },
-                modifier = Modifier.weight(1f)
-            )
-
             Text(
                 text = formatTime(uiState.duration),
-                fontSize = 12.sp,
-                color = PlayerColors.TextTertiary
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.72f)
             )
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
+        // 三区布局：左侧辅助 / 中央播放 / 右侧功能
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TransportButton(Icons.Rounded.SkipPrevious, "上一曲", onPrevious)
-            val playIcon = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow
-            TransportButton(
-                playIcon,
-                if (uiState.isPlaying) "暂停" else "播放",
-                onPlayPause,
-                isLarge = true,
-                focusRequester = playPauseFocusRequester
-            )
-            TransportButton(Icons.Rounded.SkipNext, "下一曲", onNext)
-            // 电台是持续流媒体，没有队列顺序/循环概念，隐藏播放模式键
-            if (uiState.currentSong?.type != "radio") {
-                val modeIcon = when (uiState.playMode) {
-                    PlayMode.ORDER -> Icons.AutoMirrored.Rounded.PlaylistPlay
-                    PlayMode.LOOP -> Icons.Rounded.Repeat
-                    PlayMode.SINGLE -> Icons.Rounded.RepeatOne
-                    PlayMode.RANDOM -> Icons.Rounded.Shuffle
+            // 左区：收藏 + 播放模式（radio 无队列顺序概念，隐藏模式键）
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                TransportButton(
+                    icon = if (uiState.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = "收藏",
+                    onClick = onToggleFavorite
+                )
+                if (!isRadio) {
+                    Spacer(Modifier.width(12.dp))
+                    val modeIcon = when (uiState.playMode) {
+                        PlayMode.ORDER -> Icons.AutoMirrored.Rounded.PlaylistPlay
+                        PlayMode.LOOP -> Icons.Rounded.Repeat
+                        PlayMode.SINGLE -> Icons.Rounded.RepeatOne
+                        PlayMode.RANDOM -> Icons.Rounded.Shuffle
+                    }
+                    TransportButton(modeIcon, "播放模式", onCyclePlayMode)
                 }
-                TransportButton(modeIcon, "播放模式", onCyclePlayMode)
             }
-            TransportButton(
-                if (uiState.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                "收藏",
-                onToggleFavorite
-            )
-            // 电台是持续流媒体，无歌词概念，隐藏重新获取歌词键
-            if (uiState.currentSong?.type != "radio") {
+
+            // 中央区：上一曲 / 播放暂停 / 下一曲（播放按钮强调）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                TransportButton(Icons.Rounded.SkipPrevious, "上一曲", onPrevious)
+                val playIcon = if (uiState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow
                 TransportButton(
-                    Icons.Rounded.Refresh,
-                    "重新获取歌词",
-                    onRefreshLyrics,
-                    loading = isLyricRefreshing
+                    playIcon,
+                    if (uiState.isPlaying) "暂停" else "播放",
+                    onPlayPause,
+                    isLarge = true,
+                    emphasized = true,
+                    focusRequester = playPauseFocusRequester
+                )
+                TransportButton(Icons.Rounded.SkipNext, "下一曲", onNext)
+            }
+
+            // 右区：重新获取歌词 / K 歌 / 音效 / 队列
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                if (!isRadio) {
+                    TransportButton(
+                        Icons.Rounded.Refresh,
+                        "重新获取歌词",
+                        onRefreshLyrics,
+                        loading = isLyricRefreshing
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    TransportButton(
+                        Icons.Rounded.Mic,
+                        "K 歌模式",
+                        onClick = onEnterKaraokeMode,
+                        focusRequester = micButtonFocusRequester
+                    )
+                }
+                if (onToggleSound != null && !isRadio) {
+                    Spacer(Modifier.width(12.dp))
+                    TransportButton(
+                        Icons.Rounded.GraphicEq,
+                        "音效",
+                        onToggleSound,
+                        focusRequester = soundButtonFocusRequester
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                TransportButton(
+                    Icons.AutoMirrored.Rounded.QueueMusic,
+                    "播放队列",
+                    onToggleQueue,
+                    focusRequester = queueButtonFocusRequester
                 )
             }
-            // === K 歌入口独立按钮（麦克风图标）===
-            if (uiState.currentSong?.type != "radio") {
-                TransportButton(
-                    Icons.Rounded.Mic,
-                    "K 歌模式",
-                    onClick = onEnterKaraokeMode,
-                    focusRequester = micButtonFocusRequester
-                )
-            }
-            // 电台是持续流媒体，音效无意义，隐藏音效键（均衡器/音效任一开启才显示入口）
-            if (onToggleSound != null && uiState.currentSong?.type != "radio") {
-                TransportButton(
-                    Icons.Rounded.GraphicEq,
-                    "音效",
-                    onToggleSound,
-                    focusRequester = soundButtonFocusRequester
-                )
-            }
-            TransportButton(Icons.AutoMirrored.Rounded.QueueMusic, "播放队列", onToggleQueue, focusRequester = queueButtonFocusRequester)
         }
     }
 }

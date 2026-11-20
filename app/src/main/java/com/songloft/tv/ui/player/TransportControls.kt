@@ -8,13 +8,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import com.songloft.tv.util.AppText as Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,8 +35,12 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.songloft.tv.ui.theme.PlayerColors
 
 private const val SEEK_STEP_MS = 10_000L
@@ -82,40 +90,50 @@ fun SeekBar(
         Modifier
     }
 
+    val fraction = progress.coerceIn(0f, 1f)
     Box(
         modifier = modifier
-            .height(20.dp)
+            .height(if (interactive) 28.dp else 16.dp)
             .padding(horizontal = 12.dp)
             .onSizeChanged { trackWidth = it.width }
             .then(interactionModifiers),
         contentAlignment = Alignment.CenterStart
     ) {
+        // 轨道
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (isFocused) 6.dp else 4.dp)
+                .height(if (isFocused) 5.dp else 3.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(if (isFocused) PlayerColors.TrackBgFocused else PlayerColors.TrackBg)
-        ) {
+                .background(Color.White.copy(alpha = if (isFocused) 0.38f else 0.24f))
+        )
+        // 已播进度（主题色，跟随默认/用户所选主题）
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction)
+                .height(if (isFocused) 5.dp else 3.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        // 滑块：聚焦时带主题色光晕 + 白色圆点
+        if (interactive) {
             Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
-        if (isFocused) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f)),
+                modifier = Modifier.fillMaxWidth(fraction),
                 contentAlignment = Alignment.CenterEnd
             ) {
+                if (isFocused) {
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.28f))
+                    )
+                }
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(if (isFocused) 12.dp else 8.dp)
                         .clip(RoundedCornerShape(50))
-                        .background(PlayerColors.TextPrimary)
+                        .background(Color.White)
                 )
             }
         }
@@ -129,7 +147,9 @@ fun TransportButton(
     onClick: () -> Unit,
     isLarge: Boolean = false,
     focusRequester: FocusRequester? = null,
-    loading: Boolean = false
+    loading: Boolean = false,
+    /** 强调按钮（播放/暂停）：常态为浅色实心 + 深色图标 */
+    emphasized: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -138,20 +158,31 @@ fun TransportButton(
         label = "transportScale"
     )
 
-    val size = if (isLarge) 64.dp else 48.dp
-    val iconSize = if (isLarge) 32.dp else 24.dp
+    val size = if (isLarge) 60.dp else 46.dp
+    val iconSize = if (isLarge) 30.dp else 22.dp
+
+    // 聚焦态沿用原样式（半透明填充 + 描边 + 放大 + 白色图标），
+    // 仅把颜色换成主题色（默认主题或用户所选主题）
+    val focusedTint = MaterialTheme.colorScheme.primary
+    val containerColor = when {
+        isFocused -> focusedTint.copy(alpha = 0.35f)
+        emphasized -> Color(0xFFF4F2EC)
+        else -> PlayerColors.ControlBg
+    }
+    val contentColor = when {
+        isFocused -> PlayerColors.TextPrimary
+        emphasized -> Color(0xFF161311)
+        else -> PlayerColors.TextPrimary
+    }
 
     Box(
         modifier = Modifier
             .scale(scale)
             .size(size)
             .clip(RoundedCornerShape(50))
-            .background(
-                if (isFocused) PlayerColors.ControlBgFocused
-                else PlayerColors.ControlBg
-            )
+            .background(containerColor)
             .then(
-                if (isFocused) Modifier.border(2.dp, PlayerColors.ControlBorder, RoundedCornerShape(50))
+                if (isFocused) Modifier.border(2.dp, focusedTint, RoundedCornerShape(50))
                 else Modifier
             )
             .then(
@@ -165,13 +196,13 @@ fun TransportButton(
             CircularProgressIndicator(
                 modifier = Modifier.size(iconSize),
                 strokeWidth = 2.dp,
-                color = PlayerColors.TextPrimary
+                color = contentColor
             )
         } else {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = PlayerColors.TextPrimary,
+                tint = contentColor,
                 modifier = Modifier.size(iconSize)
             )
         }
