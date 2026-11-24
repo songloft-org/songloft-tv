@@ -400,12 +400,6 @@ class ConfigWebServer(
             .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border:0;
             border-radius:12px;background:var(--tint);color:#fff;font-weight:600;text-decoration:none;cursor:pointer;margin-top:12px}
             .btn:active{opacity:.8}
-            .btn.plain{background:var(--card);color:var(--tint)}
-            .row{display:flex;gap:10px;margin-top:10px}
-            .row .btn{flex:1}
-            .pre{display:block;height:150px;margin:10px 0 0;overflow:auto;font:12px/1.4 ui-monospace,Menlo,monospace;
-            white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text;
-            color:var(--label);background:var(--card);border-radius:12px;padding:12px}
             nav{position:fixed;left:0;right:0;bottom:0;z-index:10;height:var(--tabbar);padding-bottom:env(safe-area-inset-bottom);
             display:flex;justify-content:center;background:var(--bar);box-shadow:0 -.5px 0 var(--bar-line);
             -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
@@ -456,14 +450,19 @@ class ConfigWebServer(
               <h2>GitHub 加速源</h2>
               <div class="list">
                 <label class="item field"><span class="name">代理地址</span><input id="proxyInput" type="url" placeholder="https://your-proxy.com/" spellcheck="false"></label>
-                <div class="item"><span class="txt">用法说明<span class="sub">在原始 URL 前拼接代理前缀，如 https://代理地址/https://github.com/...。留空表示恢复直连，保存后应用更新优先使用。</span></span></div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:0 16px 12px;
+                font-size:13px;color:var(--secondary)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                  <button class="link" type="button" style="font-size:13px;font-weight:400" onclick="copyPrompt()">复制 Prompt 让 AI 帮你找</button>
+                  <span style="color:var(--tertiary)">·</span>
+                  <a class="link" style="font-size:13px;font-weight:400" href="https://chat.deepseek.com/" target="_blank" rel="noopener" onclick="copyPrompt()">DeepSeek</a>
+                  <span style="color:var(--tertiary)">·</span>
+                  <a class="link" style="font-size:13px;font-weight:400" href="https://chat.qwen.ai/" target="_blank" rel="noopener" onclick="copyPrompt()">千问</a>
+                </div>
               </div>
+              <p class="foot" id="copyStatus"></p>
               <p class="foot" id="proxyStatus"></p>
               <button class="btn" type="button" onclick="saveProxy()">保存代理源</button>
-              <h2>AI 搜索提示词</h2>
-              <pre class="pre" id="aiPrompt"></pre>
-              <div class="row"><button class="btn plain" type="button" id="copyAiPrompt" onclick="copyAiPrompt()">复制提示词</button></div>
-              <p class="foot" id="copyStatus"></p>
             </section>
             <p class="foot">遇到问题？<a class="link" href="https://github.com/boluofan/songloft-tv/issues" target="_blank" rel="noopener">问题反馈</a></p>
             </main>
@@ -475,6 +474,7 @@ class ConfigWebServer(
               <button role="tab" id="tabProxy" aria-selected="false" onclick="showTab('proxy')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><span>加速源</span></button>
             </nav>
             <script>
+            var aiPrompt = $promptJs;
             function showTab(name){
               ['Config','Search','Order','Logs','Proxy'].forEach(function(t){
                 var k=t.toLowerCase(), on=name===k;
@@ -487,7 +487,6 @@ class ConfigWebServer(
             }
             function initProxy(){
               document.getElementById('proxyInput').value=$proxyJs;
-              document.getElementById('aiPrompt').textContent=$promptJs;
             }
             function setStatus(el,msg,ok){
               el.textContent=msg;
@@ -503,19 +502,19 @@ class ConfigWebServer(
                 .then(function(r){return r.text().then(function(t){setStatus(status,t,r.ok);});})
                 .catch(function(){setStatus(status,'保存失败，请确认电视端仍在本页面',false);});
             }
-            function copyAiPrompt(){
-              var text=document.getElementById('aiPrompt').textContent;
+            function copyPrompt(){
               var status=document.getElementById('copyStatus');
-              var done=function(){setStatus(status,'已复制');setTimeout(function(){status.textContent='';},2000);};
+              var done=function(){setStatus(status,'已复制，粘贴到 AI 对话框即可');setTimeout(function(){status.textContent='';},3000);};
               var fallback=function(){
-                var el=document.getElementById('aiPrompt'),range=document.createRange();
-                range.selectNodeContents(el);
-                var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+                var ta=document.createElement('textarea');
+                ta.value=aiPrompt;ta.style.position='fixed';ta.style.opacity='0';
+                document.body.appendChild(ta);ta.focus();ta.select();
                 try{document.execCommand('copy');done();}
-                catch(e){setStatus(status,'复制失败，请长按文本手动复制',false);}
+                catch(e){setStatus(status,'复制失败，请稍后重试',false);}
+                document.body.removeChild(ta);
               };
               if(navigator.clipboard&&navigator.clipboard.writeText){
-                navigator.clipboard.writeText(text).then(done,fallback);
+                navigator.clipboard.writeText(aiPrompt).then(done,fallback);
               }else fallback();
             }
             function togglePw(){
