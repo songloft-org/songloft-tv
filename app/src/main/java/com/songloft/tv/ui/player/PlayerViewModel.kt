@@ -66,6 +66,8 @@ data class PlayerUiState(
     val vocalRemovalEnabled: Boolean = false,
     val lyricHighlightColor: Int = 2,
     val lyricFontSize: Int = 30,
+    // 播放器皮肤（仅正常音乐模式生效）
+    val playerSkin: PlayerSkin = PlayerSkin.POSTER,
     // 控制栏常驻：开启后底部功能菜单不自动隐藏
     val controlsPersistent: Boolean = false,
     val screensaverTimeoutMs: Long = 0L,
@@ -146,6 +148,12 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.lyricFontSize.collect { size ->
                 _uiState.update { it.copy(lyricFontSize = size) }
+            }
+        }
+        viewModelScope.launch {
+            dataStore.playerSkin.collect { ordinal ->
+                val skin = if (ordinal == PlayerSkin.CLASSIC.ordinal) PlayerSkin.CLASSIC else PlayerSkin.POSTER
+                _uiState.update { it.copy(playerSkin = skin) }
             }
         }
         viewModelScope.launch {
@@ -340,6 +348,19 @@ class PlayerViewModel @Inject constructor(
 
     fun showControls() {
         _uiState.update { it.copy(showControls = true) }
+    }
+
+    fun setPlayerSkin(skin: PlayerSkin) {
+        _uiState.update { it.copy(playerSkin = skin) }
+        viewModelScope.launch { dataStore.setPlayerSkin(skin.ordinal) }
+    }
+
+    fun cyclePlayerSkin() {
+        val next = when (_uiState.value.playerSkin) {
+            PlayerSkin.POSTER -> PlayerSkin.CLASSIC
+            PlayerSkin.CLASSIC -> PlayerSkin.POSTER
+        }
+        setPlayerSkin(next)
     }
 
     private fun loadLyrics(songId: Long) {

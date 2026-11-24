@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Style
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,9 @@ fun ControlBar(
     onCycleAudioTrack: () -> Unit = {},  // 保留以便支持多音轨歌曲
     onRefreshLyrics: () -> Unit = {},
     onEnterKaraokeMode: () -> Unit = {},  // K 歌入口回调
+    onCycleSkin: () -> Unit = {},  // 播放器皮肤切换
+    showSkinButton: Boolean = false,  // 仅正常音乐模式显示
+    currentSkin: PlayerSkin = PlayerSkin.POSTER,
     isLyricRefreshing: Boolean = false,
     playPauseFocusRequester: FocusRequester? = null,
     micButtonFocusRequester: FocusRequester? = null,
@@ -185,6 +189,14 @@ fun ControlBar(
                         "音效",
                         onToggleSound,
                         focusRequester = soundButtonFocusRequester
+                    )
+                }
+                if (showSkinButton) {
+                    Spacer(Modifier.width(12.dp))
+                    TransportButton(
+                        Icons.Rounded.Style,
+                        if (currentSkin == PlayerSkin.CLASSIC) "切换皮肤（当前：经典大屏）" else "切换皮肤（当前：海报）",
+                        onCycleSkin
                     )
                 }
                 Spacer(Modifier.width(12.dp))

@@ -85,7 +85,7 @@ baseUrl 为 `{serverUrl}/api/v1/`，全部 suspend 方法：
 
 ### 2.5 存储（`data/storage/PreferencesDataStore.kt`）
 
-DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(Int，0=跟随系统/1=浅色/2=深色/3=暗夜)、`theme_color`(String，默认 `"indigo"`)、`audio_quality`、`access_token`、`refresh_token`、`background_playback`、`use_custom_keyboard`、`ignored_version_code`、`eq_enabled`(Boolean)、`eq_preset`(Int，系统预设下标，-1=自定义)、`eq_bands`(String，逗号分隔 dB)、`sfx_enabled`(Boolean)、`sfx_mode`(String，virtualizer/bass_boost/loudness/reverb)、`sfx_strength`(Int，0-100)、`lyric_highlight_color`(Int)、`lyric_font_size`(Int，默认 30)、`play_cache_mb`(Int，MB，0=关闭)、`cache_server_url`(String，缓存归属服务器)、`key_mapping_up/down/left/right/back/confirm/top/bottom`(Int，自定义按键映射，0=未设置)。均以 Flow 暴露；按键映射以 `KeyMapping` 数据类聚合暴露，`setKeyMapping` 单次原子写 6+2 个 key。
+DataStore 名 `songloft_tv_settings`，28 个 key：`server_url`、`theme_mode`(Int，0=跟随系统/1=浅色/2=深色/3=暗夜)、`theme_color`(String，默认 `"indigo"`)、`audio_quality`、`access_token`、`refresh_token`、`background_playback`、`use_custom_keyboard`、`ignored_version_code`、`eq_enabled`(Boolean)、`eq_preset`(Int，系统预设下标，-1=自定义)、`eq_bands`(String，逗号分隔 dB)、`sfx_enabled`(Boolean)、`sfx_mode`(String，virtualizer/bass_boost/loudness/reverb)、`sfx_strength`(Int，0-100)、`lyric_highlight_color`(Int)、`lyric_font_size`(Int，默认 30)、`player_skin`(Int，0=海报/1=经典大屏)、`play_cache_mb`(Int，MB，0=关闭)、`cache_server_url`(String，缓存归属服务器)、`key_mapping_up/down/left/right/back/confirm/top/bottom`(Int，自定义按键映射，0=未设置)。均以 Flow 暴露；按键映射以 `KeyMapping` 数据类聚合暴露，`setKeyMapping` 单次原子写 6+2 个 key。
 
 ### 2.6 播放缓存（`data/cache/PlaybackCache.kt`）
 
@@ -154,7 +154,10 @@ DataStore 名 `songloft_tv_settings`，27 个 key：`server_url`、`theme_mode`(
 - **PlayerActivity**：独立 Activity，仅承载 `PlayerScreen`。
 - **PlayerViewModel**：collect PlayerController.state 映射 UiState；进度轮询自适应——有逐字歌词时 60ms（卡拉 OK 平滑），否则 500ms；收藏乐观更新、失败回滚。K 歌退出走两步确认（`requestExitKaraoke` → `showExitKaraokeConfirm` → 弹窗确认 → `exitKaraokeMode`），退出时暂停主播放器。
 - **交互**：控制栏 10s 无操作自动隐藏；控制隐藏时——左右键长按连续 ±10s seek、短按切歌、上下/OK 唤出控制栏；媒体键直达（MediaNext/Previous/PlayPause）。控制栏左上角带返回按钮（`PlayerActivity` 内 BackHandler/按钮返回主界面）。
-- **两种模式**：视频（全屏 `VideoPlayer` = PlayerView 绑定 MediaController，多音轨时右上角 TrackChips）；音频（封面 blur(60dp) 毛玻璃背景 + 左封面/右 `LyricsPanel`）。
+- **两种模式**：视频（全屏 `VideoPlayer` = PlayerView 绑定 MediaController，多音轨时右上角 TrackChips）；正常音乐有两套可切换皮肤（控制栏「皮肤」按钮，仅正常音乐模式显示，选择写入 DataStore `player_skin`，跨重启保留，默认海报）：
+  - **海报**（默认）：`rememberPlayerArtwork` 取色 + `PosterBackdrop` 全高海报/面板过渡 + 右侧标题、音质徽章、歌手与歌词（高亮行停靠 96dp）；无封面回退氛围底色 + 黑胶唱盘。
+  - **经典大屏**：模糊封面背景 + 左侧 300dp 圆角方封面与歌名歌手 + 右侧居中歌词，对齐重做前的布局。
+  - 两套皮肤共用一次封面加载（`rememberPlayerArtwork` 放在皮肤分支外），切换不重新解码；K 歌/屏保/视频模式不受皮肤影响。
 - **LyricsPanel**：自动滚动居中；逐字行渲染 KaraokeLine（按 word start/end 进度逐字点亮）；附带翻译行。
   - **ControlBar**：SeekBar（支持触屏点击定位 + 拖拽 seek）+ 上一曲/播放暂停/下一曲/播放模式/收藏/重新获取歌词/均衡器/队列按钮（重新获取歌词走 `refresh=1` 重跑服务端歌词插件搜索，请求中按钮显示加载圈）。原唱/伴唱按钮对所有非电台歌曲显示：多音轨时 `cycleAudioTrack` 切轨道（Scheme B），单音轨时 `toggleAccompaniment` 开关 DSP 人声消除（Scheme A）。
 - **QueueDrawer**：左侧 400dp 抽屉，当前曲高亮，自动滚到当前位置，点击条目跳播（`PlayerController.playAt(index)`）。

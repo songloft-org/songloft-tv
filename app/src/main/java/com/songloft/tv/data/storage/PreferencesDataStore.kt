@@ -47,6 +47,8 @@ class PreferencesDataStore @Inject constructor(
         private val PRE_TRANSCODE_ENABLED = booleanPreferencesKey("pre_transcode_enabled")
         val LYRIC_HIGHLIGHT_COLOR = intPreferencesKey("lyric_highlight_color")
         val LYRIC_FONT_SIZE = intPreferencesKey("lyric_font_size")
+        // 播放器皮肤：0=海报，1=经典大屏
+        private val PLAYER_SKIN = intPreferencesKey("player_skin")
         // 全局字体缩放级别：0=小、1=中（默认）、2=大、3=特大
         val FONT_SIZE_SCALE = intPreferencesKey("font_size_scale")
         private val PLAY_MODE = stringPreferencesKey("play_mode")
@@ -101,6 +103,8 @@ class PreferencesDataStore @Inject constructor(
     val lyricHighlightColor: Flow<Int> = context.dataStore.data.map { it[LYRIC_HIGHLIGHT_COLOR] ?: 2 }
     // 歌词字号：当前句字号 sp，默认 30；非当前句/翻译行按比例派生
     val lyricFontSize: Flow<Int> = context.dataStore.data.map { it[LYRIC_FONT_SIZE] ?: 30 }
+    // 播放器皮肤序号：对应 PlayerSkin.ordinal，默认海报
+    val playerSkin: Flow<Int> = context.dataStore.data.map { it[PLAYER_SKIN] ?: 0 }
     // 全局字体缩放级别：0=小、1=中（默认）、2=大、3=特大
     val fontSizeScale: Flow<Int> = context.dataStore.data.map { it[FONT_SIZE_SCALE] ?: 1 }
     // 播放缓存：MB，0=关闭（默认）；仅当缓存归属服务器与当前 serverUrl 一致时才复用缓存目录
@@ -213,6 +217,10 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun setLyricFontSize(size: Int) {
         context.dataStore.edit { it[LYRIC_FONT_SIZE] = size }
+    }
+
+    suspend fun setPlayerSkin(ordinal: Int) {
+        context.dataStore.edit { it[PLAYER_SKIN] = ordinal }
     }
 
     suspend fun setFontSizeScale(scale: Int) {
