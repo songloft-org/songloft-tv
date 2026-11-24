@@ -85,6 +85,7 @@ import com.songloft.tv.ui.search.SearchScreen
 import com.songloft.tv.ui.settings.SettingsScreen
 import com.songloft.tv.ui.stats.StatsScreen
 import com.songloft.tv.ui.theme.TvTheme
+import com.songloft.tv.ui.update.ProxyQrDialog
 import com.songloft.tv.ui.update.UpdateDialog
 import com.songloft.tv.ui.update.UpdateViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -293,6 +294,7 @@ fun TvApp(
     var showExitDialog by remember { mutableStateOf(false) }
     var showDisclaimer by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
+    var showProxyQr by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun push(screen: Screen) {
@@ -325,6 +327,7 @@ fun TvApp(
 
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.uiState.collectAsStateWithLifecycle()
+    val configUrl by authViewModel.configUrl.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { updateViewModel.autoCheckOnLaunch() }
 
     // 开机自动续播：登录完成即恢复上次队列与进度开始播放，悬浮播放器条随之出现；
@@ -353,8 +356,23 @@ fun TvApp(
         onStartDownload = updateViewModel::startDownload,
         onIgnore = updateViewModel::ignoreVersion,
         onRetryCheck = updateViewModel::manualCheck,
-        onDismiss = updateViewModel::dismiss
+        onDismiss = updateViewModel::dismiss,
+        onShowProxyConfig = {
+            authViewModel.startConfigServer()
+            showProxyQr = true
+        }
     )
+    if (showProxyQr) {
+        configUrl?.let { url ->
+            ProxyQrDialog(
+                url = url,
+                onDismiss = {
+                    showProxyQr = false
+                    authViewModel.stopConfigServer()
+                }
+            )
+        }
+    }
 
     // 「操作说明」按钮：先关闭免责声明并标记已展示，再打开帮助弹窗，返回键只会回到主界面
     if (showDisclaimer) {

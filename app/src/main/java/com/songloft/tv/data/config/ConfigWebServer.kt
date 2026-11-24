@@ -13,6 +13,7 @@ import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
 /**
@@ -37,7 +38,10 @@ class ConfigWebServer(
     private val onOrderAdd: ((song: Song) -> Unit)? = null,
     private val onOrderTop: ((index: Int) -> Unit)? = null,
     private val onOrderRemove: ((index: Int) -> Unit)? = null,
-    private val onOrderQueue: (() -> List<Song>)? = null
+    private val onOrderQueue: (() -> List<Song>)? = null,
+    // GitHub 加速源：扫码配置页保存时回调，空串表示恢复直连
+    private val onProxyConfig: ((proxy: String) -> Unit)? = null,
+    private val initialProxy: String = ""
 ) : NanoHTTPD(port) {
 
     private val gson = Gson()
@@ -182,7 +186,27 @@ class ConfigWebServer(
             onOrderRemove(index)
             return text(Response.Status.OK, "已删除。")
         }
-        return html(Response.Status.OK, PAGE)
+        // GitHub 加速源：扫码配置页保存（空串 = 直连）
+        if (session.method == Method.POST && session.uri == "/proxy") {
+            session.parseBody(HashMap())
+            val raw = session.parameters["proxy"]?.firstOrNull()?.trim().orEmpty()
+            if (raw.isNotBlank() && normalizeProxy(raw) == null) {
+                return html(Response.Status.BAD_REQUEST, resultPage("保存失败", "代理地址需为 http(s):// 开头的有效网址。"))
+            }
+            val onProxyConfig = onProxyConfig
+                ?: return html(Response.Status.BAD_REQUEST, resultPage("保存失败", "电视端未开启代理配置。"))
+            val value = normalizeProxy(raw).orEmpty()
+            onProxyConfig(value)
+            return html(
+                Response.Status.OK,
+                resultPage(
+                    "已保存",
+                    if (value.isBlank()) "已恢复直连，后续更新不使用代理。"
+                    else "代理源已保存，后续更新优先使用：$value"
+                )
+            )
+        }
+        return html(Response.Status.OK, page(initialProxy))
     }
 
     private fun esc(value: String?): String {
@@ -192,6 +216,15 @@ class ConfigWebServer(
             .replace("\n", "\\n")
             .replace("\r", "\\r")
         return "\"$s\""
+    }
+
+    /** 代理前缀归一化：http(s) 协议 + 非空主机，统一补尾部 /；空串表示直连。 */
+    private fun normalizeProxy(raw: String): String? {
+        val value = raw.trim()
+        if (value.isBlank()) return ""
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
+        if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
+        return if (value.endsWith("/")) value else "$value/"
     }
 
     private fun html(status: Response.Status, content: String): Response =
@@ -270,6 +303,11 @@ class ConfigWebServer(
 
     companion object {
         private const val TAG = "ConfigWebServer"
+        private const val AI_PROMPT =
+            "请帮我找几个目前可用的 GitHub 文件加速/反代服务（GitHub proxy mirror），" +
+            "要求：1) 免费、无需注册；2) 支持代理 github.com 和 raw.githubusercontent.com 的文件下载；" +
+            "3) 用法是在原始 URL 前拼接代理前缀，如 https://代理地址/https://github.com/...。" +
+            "请给出 3-5 个可用的代理地址（以 https:// 开头、/ 结尾），并注明各自的特点。"
         private const val BEACON_ADDRESS = "255.255.255.255"
         private const val BEACON_PORT = 18910
         private const val BEACON_INTERVAL_MS = 2_000L
@@ -292,7 +330,20 @@ class ConfigWebServer(
             <body><h2>$title</h2><p>$message</p></body></html>
         """.trimIndent()
 
-        private val PAGE = """
+        /** 把 Kotlin 字符串转成可安全嵌入 <script> 的 JS 字符串字面量。 */
+        private fun jsString(value: String): String {
+            val escaped = value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+            return "\"$escaped\""
+        }
+
+        private fun page(initialProxy: String): String {
+            val promptJs = jsString(AI_PROMPT)
+            val proxyJs = jsString(initialProxy)
+            return """
             <!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Songloft TV</title>
@@ -300,7 +351,7 @@ class ConfigWebServer(
             body{font-family:sans-serif;background:#111827;color:#eee;margin:0;padding:24px}
             h2{color:#8fb0e8;text-align:center}
             .tabs{display:flex;margin-bottom:8px;border-bottom:1px solid #374151}
-            .tab{flex:1;padding:12px;font-size:16px;text-align:center;color:#bbb;
+            .tab{flex:1;padding:12px;font-size:14px;text-align:center;color:#bbb;
             background:none;border:none;border-bottom:2px solid transparent}
             .tab.active{color:#8fb0e8;border-bottom-color:#415F91;font-weight:bold}
             .panel{display:none}
@@ -308,6 +359,11 @@ class ConfigWebServer(
             label{display:block;margin:16px 0 6px;font-size:14px;color:#bbb}
             input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;
             border:1px solid #374151;border-radius:8px;background:#1f2937;color:#eee}
+            textarea{width:100%;box-sizing:border-box;padding:12px;font-size:14px;line-height:1.5;
+            border:1px solid #374151;border-radius:8px;background:#1f2937;color:#eee;resize:vertical}
+            .hint{font-size:13px;color:#9ca3af;line-height:1.6;margin:8px 0}
+            .copy-btn{padding:8px 12px;font-size:13px;border:1px solid #415F91;border-radius:8px;
+            background:#1f2937;color:#8fb0e8;cursor:pointer}
             .pw-wrap{position:relative}
             .pw-wrap input{padding-right:44px}
             .pw-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);
@@ -342,6 +398,7 @@ class ConfigWebServer(
               <button class="tab" id="tabSearch" onclick="showTab('search')">搜索</button>
               <button class="tab" id="tabOrder" onclick="showTab('order')">点歌</button>
               <button class="tab" id="tabLogs" onclick="showTab('logs')">日志</button>
+              <button class="tab" id="tabProxy" onclick="showTab('proxy')">加速源</button>
             </div>
             <div class="panel" id="panelConfig">
               <form method="post" action="/submit">
@@ -375,6 +432,17 @@ class ConfigWebServer(
             <div class="panel" id="panelLogs">
               <div id="logList"><div class="hint">加载中…</div></div>
             </div>
+            <div class="panel" id="panelProxy">
+              <label>GitHub 加速源（留空 = 直连）</label>
+              <input id="proxyInput" type="url" placeholder="https://your-proxy.com/">
+              <p class="hint">在原始 URL 前拼接代理前缀，如 https://代理地址/https://github.com/...。保存后应用更新优先使用此地址。</p>
+              <label>AI 搜索提示词</label>
+              <textarea id="aiPrompt" rows="6" readonly></textarea>
+              <p><button type="button" class="copy-btn" id="copyAiPrompt" onclick="copyAiPrompt()">复制提示词</button>
+              <span class="hint" id="copyStatus"></span></p>
+              <button class="submit" type="button" onclick="saveProxy()">保存代理源</button>
+              <div class="hint" id="proxyStatus"></div>
+            </div>
             <div class="panel" id="panelOrder">
               <form id="orderSearchForm">
                 <label>搜索歌曲</label>
@@ -391,13 +459,44 @@ class ConfigWebServer(
             </div>
             <script>
             function showTab(name){
-              ['Config','Search','Order','Logs'].forEach(function(t){
+              ['Config','Search','Order','Logs','Proxy'].forEach(function(t){
                 var k=t.toLowerCase();
                 document.getElementById('tab'+t).classList.toggle('active',name===k);
                 document.getElementById('panel'+t).classList.toggle('active',name===k);
               });
               if(name==='logs')loadLogs();
               if(name==='order')loadOrder();
+              if(name==='proxy')initProxy();
+            }
+            function initProxy(){
+              document.getElementById('proxyInput').value = $proxyJs;
+              document.getElementById('aiPrompt').value = $promptJs;
+            }
+            function saveProxy(){
+              var value=document.getElementById('proxyInput').value.trim();
+              var status=document.getElementById('proxyStatus');
+              status.textContent='保存中...';status.style.color='#9ca3af';
+              fetch('/proxy',{method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:'proxy='+encodeURIComponent(value)})
+                .then(function(r){return r.text().then(function(t){
+                  status.textContent=t;status.style.color=r.ok?'#8fb0e8':'#f87171';
+                });})
+                .catch(function(){status.textContent='保存失败，请确认电视端仍在本页面';
+                  status.style.color='#f87171';});
+            }
+            function copyAiPrompt(){
+              var text=document.getElementById('aiPrompt').value;
+              var status=document.getElementById('copyStatus');
+              var done=function(){status.textContent='已复制';setTimeout(function(){status.textContent='';},2000);};
+              var fallback=function(){
+                var ta=document.getElementById('aiPrompt');ta.focus();ta.select();
+                try{document.execCommand('copy');done();}
+                catch(e){status.textContent='复制失败，请长按文本手动复制';}
+              };
+              if(navigator.clipboard&&navigator.clipboard.writeText){
+                navigator.clipboard.writeText(text).then(done,fallback);
+              }else fallback();
             }
             function togglePw(){
               var input=document.getElementById('pw');
@@ -433,7 +532,8 @@ class ConfigWebServer(
                 el.innerHTML='<div class="hint">加载失败，请刷新重试</div>';
               });
             }
-            showTab(location.hash==='#search'?'search':location.hash==='#order'?'order':location.hash==='#logs'?'logs':'config');
+            showTab(location.hash==='#search'?'search':location.hash==='#order'?'order':
+              location.hash==='#logs'?'logs':location.hash==='#proxy'?'proxy':'config');
             document.getElementById('orderSearchForm').addEventListener('submit',function(e){
               e.preventDefault();
               var status=document.getElementById('orderSearchStatus');
@@ -526,5 +626,6 @@ class ConfigWebServer(
             </script>
             </body></html>
         """.trimIndent()
+        }
     }
 }

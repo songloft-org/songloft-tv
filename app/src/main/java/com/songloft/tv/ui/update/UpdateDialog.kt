@@ -1,10 +1,12 @@
 package com.songloft.tv.ui.update
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +35,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -43,6 +48,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.songloft.tv.BuildConfig
 import com.songloft.tv.data.model.UpdateInfo
+import com.songloft.tv.ui.components.generateQrBitmap
 import com.songloft.tv.util.ApkInstaller
 import android.view.KeyEvent
 import java.util.Locale
@@ -54,7 +60,8 @@ fun UpdateDialog(
     onStartDownload: () -> Unit,
     onIgnore: () -> Unit,
     onRetryCheck: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onShowProxyConfig: () -> Unit = {}
 ) {
     if (state == UpdateUiState.Idle) return
 
@@ -74,10 +81,10 @@ fun UpdateDialog(
                 UpdateUiState.Idle -> {}
                 UpdateUiState.Checking -> CheckingPanel()
                 UpdateUiState.UpToDate -> UpToDatePanel(onDismiss)
-                is UpdateUiState.CheckFailed -> CheckFailedPanel(state.message, onRetryCheck, onDismiss)
+                is UpdateUiState.CheckFailed -> CheckFailedPanel(state.message, onRetryCheck, onDismiss, onShowProxyConfig)
                 is UpdateUiState.UpdateAvailable -> AvailablePanel(state, onStartDownload, onIgnore, onDismiss)
                 is UpdateUiState.Downloading -> DownloadingPanel(state, onDismiss)
-                is UpdateUiState.DownloadFailed -> DownloadFailedPanel(state.message, onStartDownload, onDismiss)
+                is UpdateUiState.DownloadFailed -> DownloadFailedPanel(state.message, onStartDownload, onDismiss, onShowProxyConfig)
                 is UpdateUiState.ReadyToInstall -> ReadyToInstallPanel(state, onDismiss)
             }
         }
@@ -108,16 +115,25 @@ private fun UpToDatePanel(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CheckFailedPanel(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
+private fun CheckFailedPanel(
+    message: String,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onShowProxyConfig: () -> Unit
+) {
     val focus = remember { FocusRequester() }
     DialogTitle("检查更新失败")
     Spacer(Modifier.height(12.dp))
     DialogBody(message)
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(8.dp))
+    DialogBody("网络受限时，可扫描配置页二维码设置 GitHub 加速源；用户配置优先于内置代理池。")
+    Spacer(Modifier.height(16.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         DialogButton("重试", onClick = onRetry, modifier = Modifier.focusRequester(focus))
         DialogButton("关闭", onClick = onDismiss)
     }
+    Spacer(Modifier.height(12.dp))
+    DialogButton("扫码配置代理源", onClick = onShowProxyConfig)
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
@@ -246,16 +262,25 @@ private fun DownloadingPanel(state: UpdateUiState.Downloading, onCancel: () -> U
 }
 
 @Composable
-private fun DownloadFailedPanel(message: String, onRetry: () -> Unit, onDismiss: () -> Unit) {
+private fun DownloadFailedPanel(
+    message: String,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    onShowProxyConfig: () -> Unit
+) {
     val focus = remember { FocusRequester() }
     DialogTitle("下载失败")
     Spacer(Modifier.height(12.dp))
     DialogBody(message)
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(8.dp))
+    DialogBody("网络受限时，可扫描配置页二维码设置 GitHub 加速源；用户配置优先于内置代理池。")
+    Spacer(Modifier.height(16.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         DialogButton("重试", onClick = onRetry, modifier = Modifier.focusRequester(focus))
         DialogButton("取消", onClick = onDismiss)
     }
+    Spacer(Modifier.height(12.dp))
+    DialogButton("扫码配置代理源", onClick = onShowProxyConfig)
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 }
 
@@ -284,6 +309,52 @@ private fun ReadyToInstallPanel(state: UpdateUiState.ReadyToInstall, onDismiss: 
         runCatching { focus.requestFocus() }
         installFailed = !ApkInstaller.install(context, state.apkFile)
     }
+}
+
+/** 更新失败时扫码打开局域网配置页，在「加速源」页签设置 GitHub 代理。 */
+@Composable
+fun ProxyQrDialog(url: String, onDismiss: () -> Unit) {
+    val closeFocus = remember { FocusRequester() }
+    val qrBitmap = remember(url) { generateQrBitmap(url) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 36.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            DialogTitle("扫码配置 GitHub 加速源")
+            Spacer(Modifier.height(12.dp))
+            DialogBody("手机扫码后打开「加速源」页签，填写代理地址并保存；后续更新优先使用。")
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White)
+                    .padding(12.dp)
+            ) {
+                Image(
+                    bitmap = qrBitmap.asImageBitmap(),
+                    contentDescription = "配置代理源二维码",
+                    modifier = Modifier.size(220.dp)
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = url,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+            )
+            Spacer(Modifier.height(24.dp))
+            DialogButton("关闭", onClick = onDismiss, modifier = Modifier.focusRequester(closeFocus))
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { closeFocus.requestFocus() } }
 }
 
 @Composable

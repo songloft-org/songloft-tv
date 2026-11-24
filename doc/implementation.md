@@ -85,7 +85,7 @@ baseUrl 为 `{serverUrl}/api/v1/`，全部 suspend 方法：
 
 ### 2.5 存储（`data/storage/PreferencesDataStore.kt`）
 
-DataStore 名 `songloft_tv_settings`，28 个 key：`server_url`、`theme_mode`(Int，0=跟随系统/1=浅色/2=深色/3=暗夜)、`theme_color`(String，默认 `"indigo"`)、`audio_quality`、`access_token`、`refresh_token`、`background_playback`、`use_custom_keyboard`、`ignored_version_code`、`eq_enabled`(Boolean)、`eq_preset`(Int，系统预设下标，-1=自定义)、`eq_bands`(String，逗号分隔 dB)、`sfx_enabled`(Boolean)、`sfx_mode`(String，virtualizer/bass_boost/loudness/reverb)、`sfx_strength`(Int，0-100)、`lyric_highlight_color`(Int)、`lyric_font_size`(Int，默认 30)、`player_skin`(Int，0=海报/1=经典大屏)、`play_cache_mb`(Int，MB，0=关闭)、`cache_server_url`(String，缓存归属服务器)、`key_mapping_up/down/left/right/back/confirm/top/bottom`(Int，自定义按键映射，0=未设置)。均以 Flow 暴露；按键映射以 `KeyMapping` 数据类聚合暴露，`setKeyMapping` 单次原子写 6+2 个 key。
+DataStore 名 `songloft_tv_settings`，29 个 key：`server_url`、`theme_mode`(Int，0=跟随系统/1=浅色/2=深色/3=暗夜)、`theme_color`(String，默认 `"indigo"`)、`audio_quality`、`access_token`、`refresh_token`、`background_playback`、`use_custom_keyboard`、`ignored_version_code`、`eq_enabled`(Boolean)、`eq_preset`(Int，系统预设下标，-1=自定义)、`eq_bands`(String，逗号分隔 dB)、`sfx_enabled`(Boolean)、`sfx_mode`(String，virtualizer/bass_boost/loudness/reverb)、`sfx_strength`(Int，0-100)、`lyric_highlight_color`(Int)、`lyric_font_size`(Int，默认 30)、`player_skin`(Int，0=海报/1=经典大屏)、`github_proxy`(String，默认空=直连)、`play_cache_mb`(Int，MB，0=关闭)、`cache_server_url`(String，缓存归属服务器)、`key_mapping_up/down/left/right/back/confirm/top/bottom`(Int，自定义按键映射，0=未设置)。均以 Flow 暴露；按键映射以 `KeyMapping` 数据类聚合暴露，`setKeyMapping` 单次原子写 6+2 个 key。
 
 ### 2.6 播放缓存（`data/cache/PlaybackCache.kt`）
 
@@ -289,7 +289,7 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 `AuthState`（sealed）：Loading/NotConfigured/Configured/LoggedIn/Error。启动时读 DataStore serverUrl，非空则 `tryAutoLogin`。两种配置方式并存于 `AuthSetupScreen`：
 
 1. **遥控器手动输入**：三个 InputField（服务器/账号/密码）+ 共享 TvKeyboard，按 activeField 路由按键。
-2. **手机扫码**：`startConfigServer()` 在候选端口 18899-18902 启动 `ConfigWebServer`（NanoHTTPD，`GET /` 返回移动端 HTML 表单、`POST /submit` 接收 server/username/password）；电视端 ZXing 生成 `http://<局域网IP>:<端口>` 二维码；手机提交后回调触发登录，成功后停服。
+2. **手机扫码**：`startConfigServer()` 在候选端口 18899-18902 启动 `ConfigWebServer`（NanoHTTPD，`GET /` 返回移动端 HTML 表单、`POST /submit` 接收 server/username/password）；电视端 ZXing 生成 `http://<局域网IP>:<端口>` 二维码；手机提交后回调触发登录，成功后停服。配置页另有「加速源」页签：`POST /proxy` 保存用户自定义 GitHub 代理前缀到 `github_proxy`（留空=直连，自动补尾部 `/`），页内提供 AI 搜索提示词与一键复制；更新检查/下载读取该值并优先使用。更新检查/下载失败弹窗也有「扫码配置代理源」按钮，复用同一配置服务展示二维码，关闭后停服。
 
 两种方式共用 `login()`：地址无协议前缀时按 `https://` → `http://` 顺序探测登录，仅连接层失败（IOException）才换协议重试，服务器有真实响应（如账号密码错误）直接报错；成功后以实际可用协议的完整 URL 持久化。
 
@@ -339,6 +339,7 @@ K 歌模式下长时间不操作遥控器也不熄屏、不进屏保：`PlayerSc
 ## 5. 应用更新（`data/repository/UpdateRepository.kt`）
 
 - **镜像代理池**：`MIRRORS` = GitHub 直连 + ghfast.top / gh-proxy.com / ghproxy.net 三个前缀代理；`TlsCompat` 兼容老电视的 TLS 配置，检查 10s / 下载 20s / 探测 8s 超时。
+- **用户自定义代理优先**：`github_proxy`（扫码配置页「加速源」页签写入，归一化为 http(s) 且以 `/` 结尾）在检查与下载时都先单独尝试，成功即返回/下载完成；失败或 404 才回退内置池的并发检查 / 测速下载逻辑。失败弹窗提供扫码入口。
 - **检查（并发首胜）**：并发请求全部镜像的 `version.json`，取**延迟最低的成功结果**；版本比较优先 `versionCode`，旧 Release 无该字段时回退 semver 比较（合成 versionCode 供忽略过滤与缓存文件命名）；进程内 `autoCheckDone` 保证启动自动检查只执行一次。
 - **下载（先测速再整包）**：并发向各镜像发 `Range: bytes=0-64KB` 探测请求，按（网速、进程内历史稳定度、延迟）排序后从最优镜像整包下载；失败按序回退；完整命中已下载文件直接复用；进度每 256KB 上报一次；临时文件 + rename 原子落盘。
 - 下载完成的 APK 经系统安装器安装；`ignored_version_code` 支持"忽略此版本"。UI 在 `MainActivity.TvApp` 的 `UpdateDialog`（启动自动检查 + 设置页关于区手动检查）。

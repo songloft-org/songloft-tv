@@ -79,6 +79,9 @@ class AuthViewModel @Inject constructor(
 
     private var configServer: ConfigWebServer? = null
     private var pinRefreshJob: Job? = null
+    // 扫码配置页的代理源回填值；DataStore 变化时同步，保存时也即时更新
+    @Volatile
+    private var currentProxy: String = ""
 
     private val deviceName: String =
         runCatching {
@@ -107,7 +110,12 @@ class AuthViewModel @Inject constructor(
                 pin = _pairingPin.value,
                 onPushToken = { serverUrl, token ->
                     viewModelScope.launch { handlePushToken(serverUrl, token) }
-                }
+                },
+                onProxyConfig = { proxy ->
+                    currentProxy = proxy
+                    viewModelScope.launch { dataStore.setGithubProxy(proxy) }
+                },
+                initialProxy = currentProxy
             )
             if (runCatching { server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false) }.isSuccess) {
                 configServer = server
@@ -130,7 +138,7 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    private fun stopConfigServer() {
+    fun stopConfigServer() {
         pinRefreshJob?.cancel()
         pinRefreshJob = null
         configServer?.stopBeacon()
@@ -166,6 +174,9 @@ class AuthViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch {
+            dataStore.githubProxy.collect { currentProxy = it }
+        }
         viewModelScope.launch {
             val storedUrl = dataStore.serverUrl.first()
             if (!storedUrl.isNullOrEmpty()) {

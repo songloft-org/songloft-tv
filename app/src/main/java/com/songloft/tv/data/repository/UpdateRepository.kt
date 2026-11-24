@@ -8,6 +8,7 @@ import com.songloft.tv.BuildConfig
 import com.songloft.tv.data.api.TlsCompat
 import com.songloft.tv.data.model.UpdateInfo
 import com.songloft.tv.data.model.VersionJson
+import com.songloft.tv.data.storage.PreferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -18,6 +19,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
@@ -52,7 +54,8 @@ sealed interface DownloadState {
 
 @Singleton
 class UpdateRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val dataStore: PreferencesDataStore
 ) {
     companion object {
         private const val TAG = "UpdateRepository"
@@ -124,6 +127,18 @@ class UpdateRepository @Inject constructor(
         if (total >= MIN_STABILITY_SAMPLES) stat.success.toDouble() / total else 1.0
     }
 
+    /** 用户自定义代理：归一化为以 / 结尾的前缀；空串/非法地址视为未配置。 */
+    private fun normalizeProxy(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank()) return null
+        val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return null
+        if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
+        return if (value.endsWith("/")) value else "$value/"
+    }
+
+    private suspend fun customMirror(): Pair<String, String>? =
+        normalizeProxy(dataStore.githubProxy.first())?.let { it to "自定义代理" }
+
     private sealed interface MirrorResult {
         data class Ok(val json: VersionJson, val latencyMs: Long, val label: String) : MirrorResult
         data object NotFound : MirrorResult
@@ -152,6 +167,13 @@ class UpdateRepository @Inject constructor(
     }
 
     private suspend fun checkChannel(channel: UpdateChannel): MirrorResult = coroutineScope {
+        // 用户自定义代理优先：成功即返回；失败/404 才回退内置池
+        val custom = customMirror()
+        if (custom != null) {
+            val customResult = checkMirror(custom.first, custom.second, channel)
+            if (customResult is MirrorResult.Ok) return@coroutineScope customResult
+            Log.i(TAG, "自定义代理未命中，回退内置代理池")
+        }
         // 并发请求全部镜像，取延迟最低的成功结果（每个请求有 10s 总超时上限，总耗时≈最慢请求）
         val results = MIRRORS.map { (prefix, label) -> async { checkMirror(prefix, label, channel) } }
             .awaitAll()
@@ -258,6 +280,23 @@ class UpdateRepository @Inject constructor(
         val fileName = if (info.isDev) "songloft-tv-dev-${info.versionCode}.apk"
         else "songloft-tv-${info.versionCode}.apk"
         val target = File(dir, fileName)
+
+        // 用户自定义代理优先，不参与测速排序，成功即直接用它下载
+        val custom = customMirror()
+        if (custom != null) {
+            currentCoroutineContext().ensureActive()
+            try {
+                downloadFrom(custom.first + info.apkUrl, custom.second, dir, target)
+                recordSuccess(custom.second)
+                emit(DownloadState.Success(target))
+                return@flow
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recordFailure(custom.second)
+                Log.w(TAG, "自定义代理下载失败", e)
+            }
+        }
 
         // 并发探测各镜像网速，按（网速、历史稳定度、延迟）排序后整包下载；
         // 探测全部失败则退回原顺序逐个尝试
