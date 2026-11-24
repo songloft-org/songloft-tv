@@ -191,19 +191,17 @@ class ConfigWebServer(
             session.parseBody(HashMap())
             val raw = session.parameters["proxy"]?.firstOrNull()?.trim().orEmpty()
             if (raw.isNotBlank() && normalizeProxy(raw) == null) {
-                return html(Response.Status.BAD_REQUEST, resultPage("保存失败", "代理地址需为 http(s):// 开头的有效网址。"))
+                return text(Response.Status.BAD_REQUEST, "代理地址需为 http(s):// 开头的有效网址。")
             }
             val onProxyConfig = onProxyConfig
-                ?: return html(Response.Status.BAD_REQUEST, resultPage("保存失败", "电视端未开启代理配置。"))
+                ?: return text(Response.Status.BAD_REQUEST, "电视端未开启代理配置。")
             val value = normalizeProxy(raw).orEmpty()
             onProxyConfig(value)
-            return html(
+            // 返回纯文本：前端 fetch 直接把结果写进页内状态区，不再跳转整页
+            return text(
                 Response.Status.OK,
-                resultPage(
-                    "已保存",
-                    if (value.isBlank()) "已恢复直连，后续更新不使用代理。"
-                    else "代理源已保存，后续更新优先使用：$value"
-                )
+                if (value.isBlank()) "已恢复直连，后续更新不使用代理。"
+                else "代理源已保存，后续更新优先使用：$value"
             )
         }
         return html(Response.Status.OK, page(initialProxy))
@@ -323,11 +321,21 @@ class ConfigWebServer(
         private fun resultPage(title: String, message: String) = """
             <!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="theme-color" content="#f2f2f7">
             <title>$title</title>
-            <style>body{font-family:sans-serif;background:#111827;color:#eee;
-            display:flex;flex-direction:column;align-items:center;justify-content:center;
-            min-height:90vh;margin:0;padding:16px}h2{color:#8fb0e8}</style></head>
-            <body><h2>$title</h2><p>$message</p></body></html>
+            <style>
+            :root{--bg:#f2f2f7;--card:#fff;--label:#000;--secondary:rgba(60,60,67,.6);--tint:#007aff}
+            *{box-sizing:border-box}
+            body{margin:0;background:var(--bg);color:var(--label);
+            font:17px/1.35 -apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC",system-ui,sans-serif;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:90vh;padding:16px}
+            .card{width:100%;max-width:420px;background:var(--card);border-radius:16px;padding:28px 20px;text-align:center;
+            box-shadow:0 1px 3px rgba(0,0,0,.06)}
+            h2{margin:0 0 10px;font-size:22px;font-weight:700;color:var(--tint)}
+            p{margin:0;color:var(--secondary);font-size:15px}
+            a{display:inline-block;margin-top:22px;color:var(--tint);text-decoration:none;font-weight:600}
+            </style></head><body><div class="card"><h2>$title</h2><p>$message</p><a href="/">返回配置页</a></div></body></html>
+
         """.trimIndent()
 
         /** 把 Kotlin 字符串转成可安全嵌入 <script> 的 JS 字符串字面量。 */
@@ -345,166 +353,176 @@ class ConfigWebServer(
             val proxyJs = jsString(initialProxy)
             return """
             <!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Songloft TV</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+            <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+            <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+            <title>Songloft TV · 配置</title>
             <style>
-            body{font-family:sans-serif;background:#111827;color:#eee;margin:0;padding:24px}
-            h2{color:#8fb0e8;text-align:center}
-            .tabs{display:flex;margin-bottom:8px;border-bottom:1px solid #374151}
-            .tab{flex:1;padding:12px;font-size:14px;text-align:center;color:#bbb;
-            background:none;border:none;border-bottom:2px solid transparent}
-            .tab.active{color:#8fb0e8;border-bottom-color:#415F91;font-weight:bold}
-            .panel{display:none}
-            .panel.active{display:block}
-            label{display:block;margin:16px 0 6px;font-size:14px;color:#bbb}
-            input{width:100%;box-sizing:border-box;padding:12px;font-size:16px;
-            border:1px solid #374151;border-radius:8px;background:#1f2937;color:#eee}
-            textarea{width:100%;box-sizing:border-box;padding:12px;font-size:14px;line-height:1.5;
-            border:1px solid #374151;border-radius:8px;background:#1f2937;color:#eee;resize:vertical}
-            .hint{font-size:13px;color:#9ca3af;line-height:1.6;margin:8px 0}
-            .copy-btn{padding:8px 12px;font-size:13px;border:1px solid #415F91;border-radius:8px;
-            background:#1f2937;color:#8fb0e8;cursor:pointer}
-            .pw-wrap{position:relative}
-            .pw-wrap input{padding-right:44px}
-            .pw-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);
-            background:none;border:none;cursor:pointer;padding:8px;display:flex;
-            align-items:center;justify-content:center;color:#9ca3af}
-            .pw-toggle svg{width:20px;height:20px;display:block}
-            button.submit{width:100%;margin-top:24px;padding:14px;font-size:16px;font-weight:bold;
-            border:none;border-radius:8px;background:#415F91;color:#fff}
-            #searchStatus{margin-top:16px;font-size:14px;text-align:center;color:#8fb0e8;min-height:20px}
-            #logList{margin-top:16px}
-            #logList .hint{font-size:14px;text-align:center;color:#6b7280}
-            #logList a{display:block;padding:12px;margin-bottom:8px;font-size:14px;
-            border:1px solid #374151;border-radius:8px;background:#1f2937;color:#8fb0e8;
-            text-decoration:none;word-break:break-all}
-             #logList a span{color:#6b7280;font-size:12px;margin-left:8px}
-             .feedback{display:block;margin-top:32px;text-align:center;font-size:13px;color:#6b7280}
-             .feedback a{color:#8fb0e8;text-decoration:none}
-             .order-sep{margin:20px 0 8px;padding-top:12px;border-top:1px solid #374151;
-             font-size:14px;color:#8fb0e8;text-align:center}
-             #orderResults .row,#orderQueue .row{display:flex;align-items:center;justify-content:space-between;
-             padding:12px;margin-bottom:8px;font-size:14px;border:1px solid #374151;border-radius:8px;
-             background:#1f2937;color:#eee;text-decoration:none}
-             #orderResults .row span:first-child,#orderQueue .row span:first-child{color:#6b7280;font-size:12px;margin-left:8px;
-             overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
-             .act{padding:6px 10px;margin-left:8px;font-size:13px;border:none;border-radius:6px;
-             background:#415F91;color:#fff;cursor:pointer}
-             .act.del{background:#7f1d1d}
-             </style></head><body>
-            <h2>Songloft TV</h2>
-            <div class="tabs">
-              <button class="tab" id="tabConfig" onclick="showTab('config')">登录配置</button>
-              <button class="tab" id="tabSearch" onclick="showTab('search')">搜索</button>
-              <button class="tab" id="tabOrder" onclick="showTab('order')">点歌</button>
-              <button class="tab" id="tabLogs" onclick="showTab('logs')">日志</button>
-              <button class="tab" id="tabProxy" onclick="showTab('proxy')">加速源</button>
-            </div>
-            <div class="panel" id="panelConfig">
-              <form method="post" action="/submit">
-                <label>服务器地址</label>
-                <input name="server" type="url" placeholder="http://192.168.1.100:58091" required>
-                <label>账号</label>
-                <input name="username" type="text" placeholder="admin" required>
-                <label>密码</label>
-                <div class="pw-wrap">
-                  <input id="pw" name="password" type="password" placeholder="输入密码" required>
-                  <button type="button" class="pw-toggle" id="pwToggle" onclick="togglePw()" aria-label="显示密码">
-                    <svg id="pwEye" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-                    <svg id="pwEyeOff" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>
-                  </button>
-                </div>
-                <label style="margin-top:12px;display:flex;align-items:center;gap:8px">
-                  <input type="checkbox" name="remember_me" id="rememberMe" style="width:auto;padding:0;margin:0;accent-color:#415F91">
-                  <span style="font-size:13px;color:#bbb">记住登录（勾选后下次启动自动回填账号密码）</span>
-                </label>
-                <button class="submit" type="submit">提交到电视</button>
-              </form>
-            </div>
-            <div class="panel" id="panelSearch">
-              <form id="searchForm">
-                <label>搜索关键字</label>
-                <input name="keyword" id="keyword" type="text" placeholder="输入歌曲、歌手或专辑" required>
-                <button class="submit" type="submit">搜索</button>
-              </form>
-              <div id="searchStatus"></div>
-            </div>
-            <div class="panel" id="panelLogs">
-              <div id="logList"><div class="hint">加载中…</div></div>
-            </div>
-            <div class="panel" id="panelProxy">
-              <label>GitHub 加速源（留空 = 直连）</label>
-              <input id="proxyInput" type="url" placeholder="https://your-proxy.com/">
-              <p class="hint">在原始 URL 前拼接代理前缀，如 https://代理地址/https://github.com/...。保存后应用更新优先使用此地址。</p>
-              <label>AI 搜索提示词</label>
-              <textarea id="aiPrompt" rows="6" readonly></textarea>
-              <p><button type="button" class="copy-btn" id="copyAiPrompt" onclick="copyAiPrompt()">复制提示词</button>
-              <span class="hint" id="copyStatus"></span></p>
-              <button class="submit" type="button" onclick="saveProxy()">保存代理源</button>
-              <div class="hint" id="proxyStatus"></div>
-            </div>
-            <div class="panel" id="panelOrder">
-              <form id="orderSearchForm">
-                <label>搜索歌曲</label>
-                <input name="keyword" id="orderKeyword" type="text" placeholder="输入歌曲、歌手或专辑" required>
-                <button class="submit" type="submit">搜索</button>
-              </form>
-              <div id="orderSearchStatus" class="hint"></div>
+            :root{--bg:#f2f2f7;--card:#fff;--label:#000;--secondary:rgba(60,60,67,.6);
+            --tertiary:rgba(60,60,67,.3);--sep:rgba(60,60,67,.18);--tint:#007aff;
+            --fill:rgba(118,118,128,.12);--danger:#ff3b30;--bar:rgba(249,249,249,.82);
+            --bar-line:rgba(0,0,0,.14);--tabbar:calc(56px + env(safe-area-inset-bottom))}
+            @media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--label:#fff;
+            --secondary:rgba(235,235,245,.6);--tertiary:rgba(235,235,245,.3);--sep:rgba(84,84,88,.6);
+            --tint:#0a84ff;--fill:rgba(118,118,128,.24);--danger:#ff453a;
+            --bar:rgba(22,22,22,.82);--bar-line:rgba(255,255,255,.12)}}
+            *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+            html{-webkit-text-size-adjust:100%}
+            body{margin:0;background:var(--bg);color:var(--label);
+            font:17px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","HarmonyOS Sans SC",system-ui,sans-serif}
+            button,input,pre{font:inherit;color:inherit}
+            [hidden]{display:none!important}
+            main{max-width:720px;margin:0 auto;padding:env(safe-area-inset-top) 16px calc(var(--tabbar) + 32px)}
+            header{padding:28px 4px 4px}
+            header h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:0}
+            header p{margin:2px 0 0;color:var(--secondary);font-size:15px}
+            h2{font-size:13px;font-weight:400;color:var(--secondary);margin:24px 16px 7px}
+            .foot{color:var(--secondary);font-size:13px;margin:7px 16px 0}
+            .foot.err{color:var(--danger)}
+            .list{background:var(--card);border-radius:12px;overflow:hidden}
+            .item{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:48px;
+            padding:11px 16px;border:0;background:none;text-align:left;text-decoration:none}
+            .item+.item::before{content:"";position:absolute;top:0;left:16px;right:0;height:.5px;background:var(--sep)}
+            button.item:active,a.item:active,label.item:active{background:var(--fill)}
+            .item .txt{flex:1;min-width:0}
+            .item .sub{display:block;font-size:13px;color:var(--secondary);margin-top:2px;line-height:1.35}
+            .item .name{flex:none;width:80px;color:var(--label)}
+            .field input{flex:1;min-width:0;font-size:16px;background:none;border:0;outline:none;padding:0}
+            .field input::placeholder{color:var(--tertiary)}
+            .link{appearance:none;border:0;background:none;color:var(--tint);padding:0;cursor:pointer;font-size:15px;font-weight:600;white-space:nowrap}
+            .link.danger{color:var(--danger)}
+            .switch{appearance:none;-webkit-appearance:none;position:relative;flex-shrink:0;width:51px;height:31px;margin:0;
+            border-radius:16px;background:var(--fill);cursor:pointer}
+            .switch::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;
+            box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:transform .25s cubic-bezier(.23,1,.32,1)}
+            .switch:checked{background:#34c759}
+            .switch:checked::after{transform:translateX(20px)}
+            .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border:0;
+            border-radius:12px;background:var(--tint);color:#fff;font-weight:600;text-decoration:none;cursor:pointer;margin-top:12px}
+            .btn:active{opacity:.8}
+            .btn.plain{background:var(--card);color:var(--tint)}
+            .row{display:flex;gap:10px;margin-top:10px}
+            .row .btn{flex:1}
+            .pre{display:block;height:150px;margin:10px 0 0;overflow:auto;font:12px/1.4 ui-monospace,Menlo,monospace;
+            white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text;
+            color:var(--label);background:var(--card);border-radius:12px;padding:12px}
+            nav{position:fixed;left:0;right:0;bottom:0;z-index:10;height:var(--tabbar);padding-bottom:env(safe-area-inset-bottom);
+            display:flex;justify-content:center;background:var(--bar);box-shadow:0 -.5px 0 var(--bar-line);
+            -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+            nav button{flex:1;max-width:160px;border:0;background:none;padding:8px 0 0;color:var(--secondary);
+            display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;font-weight:500;cursor:pointer}
+            nav button[aria-selected="true"]{color:var(--tint)}
+            @media (hover:hover) and (pointer:fine){button.item:hover,a.item:hover,label.item:hover{background:var(--fill)}}
+            @media (min-width:900px){main{max-width:1000px;padding-left:40px;padding-right:40px}}
+            </style></head><body>
+            <main>
+            <header><h1>Songloft TV</h1><p>局域网配置 · 手机扫码即可管理</p></header>
+            <section id="panelConfig">
+              <h2>登录配置</h2>
+              <div class="list">
+                <form id="configForm" method="post" action="/submit">
+                  <label class="item field"><span class="name">服务器</span><input name="server" type="url" placeholder="http://192.168.1.100:58091" required></label>
+                  <label class="item field"><span class="name">账号</span><input name="username" type="text" placeholder="admin" required></label>
+                  <label class="item field"><span class="name">密码</span><input id="pw" name="password" type="password" placeholder="输入密码" required><button type="button" class="link" id="pwToggle" onclick="togglePw()">显示</button></label>
+                  <label class="item"><span class="txt">记住登录<span class="sub">下次启动自动回填账号和密码</span></span><input class="switch" type="checkbox" name="remember_me" id="rememberMe"></label>
+                </form>
+              </div>
+              <button class="btn" type="submit" form="configForm">提交到电视</button>
+            </section>
+            <section id="panelSearch" hidden>
+              <h2>搜索音乐</h2>
+              <div class="list">
+                <form class="item field" id="searchForm"><span class="name">关键字</span><input id="keyword" name="keyword" type="text" placeholder="歌曲、歌手或专辑" required><button class="link" type="submit">搜索</button></form>
+              </div>
+              <p class="foot" id="searchStatus"></p>
+            </section>
+            <section id="panelOrder" hidden>
+              <h2>扫码点歌</h2>
+              <p class="foot" style="margin:0 4px">先在电视上进入 K 歌模式，再搜索并点歌</p>
+              <div class="list" style="margin-top:12px">
+                <form class="item field" id="orderSearchForm"><span class="name">歌曲</span><input id="orderKeyword" name="keyword" type="text" placeholder="歌曲或歌手" required><button class="link" type="submit">搜索</button></form>
+              </div>
+              <p class="foot" id="orderSearchStatus"></p>
               <div id="orderResults"></div>
-              <div class="order-sep">当前播放队列</div>
-              <div id="orderQueue"><div class="hint">加载中…</div></div>
-            </div>
-            <div class="feedback">遇到问题？
-              <a href="https://github.com/boluofan/songloft-tv/issues" target="_blank" rel="noopener">问题反馈</a>
-            </div>
+              <h2>当前播放队列</h2>
+              <div class="list" id="orderQueue"><div class="item"><span class="txt">加载中…</span></div></div>
+            </section>
+            <section id="panelLogs" hidden>
+              <h2>日志文件</h2>
+              <div class="list" id="logList"><div class="item"><span class="txt">加载中…</span></div></div>
+              <p class="foot">可在电视端 设置 → 日志 → 导出日志</p>
+            </section>
+            <section id="panelProxy" hidden>
+              <h2>GitHub 加速源</h2>
+              <div class="list">
+                <label class="item field"><span class="name">代理地址</span><input id="proxyInput" type="url" placeholder="https://your-proxy.com/" spellcheck="false"></label>
+                <div class="item"><span class="txt">用法说明<span class="sub">在原始 URL 前拼接代理前缀，如 https://代理地址/https://github.com/...。留空表示恢复直连，保存后应用更新优先使用。</span></span></div>
+              </div>
+              <p class="foot" id="proxyStatus"></p>
+              <button class="btn" type="button" onclick="saveProxy()">保存代理源</button>
+              <h2>AI 搜索提示词</h2>
+              <pre class="pre" id="aiPrompt"></pre>
+              <div class="row"><button class="btn plain" type="button" id="copyAiPrompt" onclick="copyAiPrompt()">复制提示词</button></div>
+              <p class="foot" id="copyStatus"></p>
+            </section>
+            <p class="foot">遇到问题？<a class="link" href="https://github.com/boluofan/songloft-tv/issues" target="_blank" rel="noopener">问题反馈</a></p>
+            </main>
+            <nav role="tablist">
+              <button role="tab" id="tabConfig" aria-selected="true" onclick="showTab('config')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>配置</span></button>
+              <button role="tab" id="tabSearch" aria-selected="false" onclick="showTab('search')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg><span>搜索</span></button>
+              <button role="tab" id="tabOrder" aria-selected="false" onclick="showTab('order')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg><span>点歌</span></button>
+              <button role="tab" id="tabLogs" aria-selected="false" onclick="showTab('logs')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg><span>日志</span></button>
+              <button role="tab" id="tabProxy" aria-selected="false" onclick="showTab('proxy')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><span>加速源</span></button>
+            </nav>
             <script>
             function showTab(name){
               ['Config','Search','Order','Logs','Proxy'].forEach(function(t){
-                var k=t.toLowerCase();
-                document.getElementById('tab'+t).classList.toggle('active',name===k);
-                document.getElementById('panel'+t).classList.toggle('active',name===k);
+                var k=t.toLowerCase(), on=name===k;
+                document.getElementById('tab'+t).setAttribute('aria-selected',on?'true':'false');
+                document.getElementById('panel'+t).hidden=!on;
               });
               if(name==='logs')loadLogs();
               if(name==='order')loadOrder();
               if(name==='proxy')initProxy();
             }
             function initProxy(){
-              document.getElementById('proxyInput').value = $proxyJs;
-              document.getElementById('aiPrompt').value = $promptJs;
+              document.getElementById('proxyInput').value=$proxyJs;
+              document.getElementById('aiPrompt').textContent=$promptJs;
+            }
+            function setStatus(el,msg,ok){
+              el.textContent=msg;
+              el.className=ok===undefined?'foot':(ok?'foot':'foot err');
             }
             function saveProxy(){
               var value=document.getElementById('proxyInput').value.trim();
               var status=document.getElementById('proxyStatus');
-              status.textContent='保存中...';status.style.color='#9ca3af';
+              setStatus(status,'保存中...');
               fetch('/proxy',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
                 body:'proxy='+encodeURIComponent(value)})
-                .then(function(r){return r.text().then(function(t){
-                  status.textContent=t;status.style.color=r.ok?'#8fb0e8':'#f87171';
-                });})
-                .catch(function(){status.textContent='保存失败，请确认电视端仍在本页面';
-                  status.style.color='#f87171';});
+                .then(function(r){return r.text().then(function(t){setStatus(status,t,r.ok);});})
+                .catch(function(){setStatus(status,'保存失败，请确认电视端仍在本页面',false);});
             }
             function copyAiPrompt(){
-              var text=document.getElementById('aiPrompt').value;
+              var text=document.getElementById('aiPrompt').textContent;
               var status=document.getElementById('copyStatus');
-              var done=function(){status.textContent='已复制';setTimeout(function(){status.textContent='';},2000);};
+              var done=function(){setStatus(status,'已复制');setTimeout(function(){status.textContent='';},2000);};
               var fallback=function(){
-                var ta=document.getElementById('aiPrompt');ta.focus();ta.select();
+                var el=document.getElementById('aiPrompt'),range=document.createRange();
+                range.selectNodeContents(el);
+                var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
                 try{document.execCommand('copy');done();}
-                catch(e){status.textContent='复制失败，请长按文本手动复制';}
+                catch(e){setStatus(status,'复制失败，请长按文本手动复制',false);}
               };
               if(navigator.clipboard&&navigator.clipboard.writeText){
                 navigator.clipboard.writeText(text).then(done,fallback);
               }else fallback();
             }
             function togglePw(){
-              var input=document.getElementById('pw');
+              var input=document.getElementById('pw'),btn=document.getElementById('pwToggle');
               var show=input.type==='password';
               input.type=show?'text':'password';
-              document.getElementById('pwEye').style.display=show?'none':'';
-              document.getElementById('pwEyeOff').style.display=show?'':'none';
-              document.getElementById('pwToggle').setAttribute('aria-label',show?'隐藏密码':'显示密码');
+              btn.textContent=show?'隐藏':'显示';
             }
             function fmtSize(n){
               if(n>=1048576)return (n/1048576).toFixed(1)+' MB';
@@ -518,18 +536,18 @@ class ConfigWebServer(
             }
             function loadLogs(){
               var el=document.getElementById('logList');
-              el.innerHTML='<div class="hint">加载中…</div>';
+              el.innerHTML='<div class="item"><span class="txt">加载中…</span></div>';
               fetch('/logs').then(function(r){return r.json();}).then(function(list){
                 if(!list.length){
-                  el.innerHTML='<div class="hint">暂无日志。请先在电视端 设置 → 日志 → 导出日志</div>';
+                  el.innerHTML='<div class="item"><span class="txt">暂无日志，请先在电视端 设置 → 日志 → 导出日志</span></div>';
                   return;
                 }
                 el.innerHTML=list.map(function(f){
-                  return '<a href="/logs/download?name='+encodeURIComponent(f.name)+'" download>'+
-                    f.name+'<span>'+fmtSize(f.size)+' · '+fmtTime(f.mtime)+'</span></a>';
+                  return '<a class="item" href="/logs/download?name='+encodeURIComponent(f.name)+'" download>'+
+                    '<span class="txt">'+escHtml(f.name)+'<span class="sub">'+fmtSize(f.size)+' · '+fmtTime(f.mtime)+'</span></span></a>';
                 }).join('');
               }).catch(function(){
-                el.innerHTML='<div class="hint">加载失败，请刷新重试</div>';
+                el.innerHTML='<div class="item"><span class="txt">加载失败，请刷新重试</span></div>';
               });
             }
             showTab(location.hash==='#search'?'search':location.hash==='#order'?'order':
@@ -538,31 +556,28 @@ class ConfigWebServer(
               e.preventDefault();
               var status=document.getElementById('orderSearchStatus');
               var keyword=document.getElementById('orderKeyword').value.trim();
-              if(!keyword){status.textContent='请输入搜索关键字';return;}
-              status.textContent='搜索中...';
+              if(!keyword){setStatus(status,'请输入搜索关键字',false);return;}
+              setStatus(status,'搜索中...');
               fetch('/order/search',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
                 body:'keyword='+encodeURIComponent(keyword)})
                 .then(function(r){return r.json().then(function(list){
-                  if(!Array.isArray(list)){status.textContent='搜索失败';return;}
-                  status.textContent='找到 '+list.length+' 首';
+                  if(!Array.isArray(list)){setStatus(status,'搜索失败',false);return;}
+                  setStatus(status,'找到 '+list.length+' 首',true);
                   renderOrderResults(list);
                 });})
-                .catch(function(){status.textContent='搜索失败，请确认电视端在 K 歌模式';
-                  status.style.color='#f87171';});
+                .catch(function(){setStatus(status,'搜索失败，请确认电视端在 K 歌模式',false);});
             });
             function renderOrderResults(list){
               var el=document.getElementById('orderResults');
-              if(!list.length){el.innerHTML='<div class="hint">无结果</div>';return;}
-              el.innerHTML=list.map(function(s){
+              if(!list.length){el.innerHTML='<div class="list"><div class="item"><span class="txt">无结果</span></div></div>';return;}
+              el.innerHTML='<div class="list">'+list.map(function(s){
                 var json=JSON.stringify(s);
-                return '<div class="row"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
-                  '</span><button class="act" data-order-add="'+escHtml(json)+'">点歌</button></div>';
-              }).join('');
+                return '<div class="item"><span class="txt">'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                  '</span><button class="link" data-order-add="'+escHtml(json)+'">点歌</button></div>';
+              }).join('')+'</div>';
               el.querySelectorAll('button[data-order-add]').forEach(function(btn){
-                btn.addEventListener('click',function(){
-                  orderAdd(btn.getAttribute('data-order-add'));
-                });
+                btn.addEventListener('click',function(){orderAdd(btn.getAttribute('data-order-add'));});
               });
             }
             function escHtml(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -570,27 +585,24 @@ class ConfigWebServer(
               fetch('/order/add',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
                 body:'song='+encodeURIComponent(songJson)})
-                .then(function(){loadOrder();})
-                .catch(function(){loadOrder();});
+                .then(function(){loadOrder();}).catch(function(){loadOrder();});
             };
             function loadOrder(){
               fetch('/order/queue?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(list){
                 var el=document.getElementById('orderQueue');
-                if(!list.length){el.innerHTML='<div class="hint">队列为空</div>';return;}
+                if(!list.length){el.innerHTML='<div class="item"><span class="txt">队列为空</span></div>';return;}
                 el.innerHTML=list.map(function(s){
-                  return '<div class="row" data-index="'+s.index+'"><span>'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
-                    '</span><span>'+
-                    '<button class="act" data-act="top">置顶</button>'+
-                    '<button class="act del" data-act="remove">删除</button>'+
-                    '</span></div>';
+                  return '<div class="item" data-index="'+s.index+'"><span class="txt">'+escHtml(s.title)+' - '+escHtml(s.artist||'')+
+                    '</span><span><button class="link" data-act="top">置顶</button>'+
+                    '<button class="link danger" data-act="remove" style="margin-left:14px">删除</button></span></div>';
                 }).join('');
-                el.querySelectorAll('.row').forEach(function(row){
+                el.querySelectorAll('.item').forEach(function(row){
                   var idx=row.getAttribute('data-index');
                   row.querySelector('button[data-act="top"]').addEventListener('click',function(){orderTop(idx);});
                   row.querySelector('button[data-act="remove"]').addEventListener('click',function(){orderRemove(idx);});
                 });
               }).catch(function(){
-                document.getElementById('orderQueue').innerHTML='<div class="hint">加载失败</div>';
+                document.getElementById('orderQueue').innerHTML='<div class="item"><span class="txt">加载失败</span></div>';
               });
             }
             window.orderTop=function(index){
@@ -605,26 +617,23 @@ class ConfigWebServer(
                 body:'index='+index}).then(function(){loadOrder();});
             };
             setInterval(function(){
-              if(document.getElementById('panelOrder').classList.contains('active'))loadOrder();
+              if(!document.getElementById('panelOrder').hidden)loadOrder();
             },5000);
             document.getElementById('searchForm').addEventListener('submit',function(e){
               e.preventDefault();
               var status=document.getElementById('searchStatus');
               var keyword=document.getElementById('keyword').value.trim();
-              if(!keyword){status.textContent='请输入搜索关键字';return;}
-              status.textContent='发送中...';
+              if(!keyword){setStatus(status,'请输入搜索关键字',false);return;}
+              setStatus(status,'发送中...');
               fetch('/search',{method:'POST',
                 headers:{'Content-Type':'application/x-www-form-urlencoded'},
                 body:'keyword='+encodeURIComponent(keyword)})
-                .then(function(r){return r.text().then(function(t){
-                  status.textContent=t;
-                  status.style.color=r.ok?'#8fb0e8':'#f87171';
-                });})
-                .catch(function(){status.textContent='发送失败，请确认电视端仍在搜索页';
-                  status.style.color='#f87171';});
+                .then(function(r){return r.text().then(function(t){setStatus(status,t,r.ok);});})
+                .catch(function(){setStatus(status,'发送失败，请确认电视端仍在搜索页',false);});
             });
             </script>
             </body></html>
+
         """.trimIndent()
         }
     }
