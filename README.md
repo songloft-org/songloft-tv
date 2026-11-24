@@ -126,6 +126,7 @@ app/src/main/java/com/songloft/tv/
 | [songloft-player](https://github.com/songloft-org/songloft-player) | API 接口定义、数据模型、功能逻辑、主题与样式 |
 | [music-tv](https://github.com/boluofan/music-tv) | TV 原生 UI 布局、焦点交互、沉浸播放器模式 |
 | [NASMusicTV](https://github.com/hxzhang2000/NASMusicTV) | K 歌模式：逐字卡拉 OK 高亮渲染、双层 clipRect 裁剪方案、KTV 双行歌词视图、扫码点歌交互 |
+| [fn-music-tv](https://github.com/QiaoKes/fn-music-tv) | 海报版播放器：大屏封面 + 歌词布局与视觉设计参考 |
 | [songloft-library-plus](https://github.com/charce526/songloft-library-plus) | 【首页】概览功能与布局                |
 | [songloft-plugin-stats](https://github.com/songloft-org/songloft-plugin-stats) | 【播放统计】统计接口定义、数据模型与统计页签布局 |
 
