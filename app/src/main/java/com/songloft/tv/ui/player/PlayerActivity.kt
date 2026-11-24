@@ -13,6 +13,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -476,8 +477,9 @@ fun PlayerScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = PlayerColors.TextPrimary,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
+                                // 占满剩余宽度 + 跑马灯：短名不滚、超长才来回滚动。
+                                // 原来是 fill=false（按内容宽度），永远不会溢出，所以跑马灯不生效。
+                                modifier = Modifier.weight(1f).basicMarquee()
                             )
                             val format = uiState.currentSong?.format
                             if (!format.isNullOrBlank()) {
@@ -493,7 +495,8 @@ fun PlayerScreen(
                             fontSize = 17.sp,
                             color = PlayerColors.TextSecondary,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            // 歌手名同样：超长跑马灯，短名保持原样
+                            modifier = Modifier.fillMaxWidth().basicMarquee()
                         )
 
                         Spacer(Modifier.height(40.dp))
@@ -508,6 +511,8 @@ fun PlayerScreen(
                             currentPosition = uiState.currentPosition,
                             highlightColor = highlightColor,
                             fontSize = uiState.lyricFontSize,
+                            // 顶部有歌名/歌手占位，高亮行上移到距歌词区顶部 96dp，不再落在正中偏下
+                            focusTopDp = 96,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

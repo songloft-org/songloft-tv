@@ -53,7 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.ImageLoader
+import coil.Coil
 import coil.request.ImageRequest
 import com.songloft.tv.data.api.UrlHelper
 import com.songloft.tv.ui.components.CoverImage
@@ -92,7 +92,10 @@ data class PlayerArtwork(
 fun rememberPlayerArtwork(coverUrl: String?): PlayerArtwork {
     val context = LocalContext.current
     val fallbackSurface = posterSurfaceColor(PlayerColors.AmbientFallback)
-    var art by remember(coverUrl) {
+    // 注意：这里不能用 remember(coverUrl) 当 key。切歌 coverUrl 一变，旧 state 会被丢弃，
+    // 画面立刻退回唱机，直到新图异步加载完 —— 表现为「切歌时封面闪回唱机/加载不出来」。
+    // state 只创建一次，由下面的 LaunchedEffect 负责在加载完成后更新。
+    var art by remember {
         mutableStateOf(PlayerArtwork(null, PlayerColors.AmbientFallback, fallbackSurface))
     }
 
@@ -104,7 +107,11 @@ fun rememberPlayerArtwork(coverUrl: String?): PlayerArtwork {
         }
         val loaded = withContext(Dispatchers.IO) {
             runCatching {
-                val loader = ImageLoader(context)
+                // 必须用 App 里 ImageLoaderFactory 提供的全局单例（挂了 AuthInterceptor 带 JWT）。
+                // 之前 new ImageLoader(context) 是裸实例、无鉴权，封面接口直接 401 ——
+                // 首次进播放器、播放器内切歌都取不到图；只有从悬浮播放器重进时，
+                // 因单例已把图写进共享磁盘缓存才「碰巧」显示出来。
+                val loader = Coil.imageLoader(context)
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .allowHardware(false) // 需读取像素，禁用硬件位图
@@ -122,6 +129,8 @@ fun rememberPlayerArtwork(coverUrl: String?): PlayerArtwork {
                 } else null
             }.getOrNull()
         }
+        // 竞态保护：慢图后到时如果 coverUrl 已经换了，丢弃旧结果，别盖掉新封面。
+        if (!isActive) return@LaunchedEffect
         art = loaded ?: PlayerArtwork(null, PlayerColors.AmbientFallback, fallbackSurface)
     }
 

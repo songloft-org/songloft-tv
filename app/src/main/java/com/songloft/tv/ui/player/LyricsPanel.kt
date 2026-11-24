@@ -38,8 +38,18 @@ fun LyricsPanel(
     currentPosition: Long,
     modifier: Modifier = Modifier,
     highlightColor: Color = PlayerColors.TextPrimary,
-    fontSize: Int = 30
+    fontSize: Int = 30,
+    /**
+     * 高亮行停靠位置：距歌词容器顶部的 dp 值。
+     * null = 保持原行为（整段歌词在容器里居中，屏保模式用）；
+     * 非 null = 高亮行滚到这个高度，首行/末行也能到达。播放器右上角有歌名+歌手占位，
+     * 原来居中导致高亮行偏下，正常播放模式传 96 把它上移到视觉焦点处。
+     */
+    focusTopDp: Int? = null
 ) {
+    // 底部留白必须够大，最后一行才能滚到 focusTopDp；取一个大于常见容器高度的固定值即可
+    val focusTop = focusTopDp?.dp
+    val bottomPad = if (focusTopDp == null) 200.dp else 440.dp
     val listState = rememberLazyListState()
 
     val activeSize = fontSize.sp
@@ -69,8 +79,10 @@ fun LyricsPanel(
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            contentPadding = PaddingValues(vertical = 200.dp)
+            // 屏保保持居中；播放器改成从上往下排 + 顶部留白，高亮行不再落在正中偏下
+            verticalArrangement = if (focusTop == null) Arrangement.Center else Arrangement.Top,
+            contentPadding = if (focusTop == null) PaddingValues(vertical = 200.dp)
+            else PaddingValues(top = focusTop, bottom = bottomPad)
         ) {
             itemsIndexed(lyrics) { index, line ->
                 val isActive = index == currentIndex
